@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>AutoPage</title>
+
+  <!-- PWA / installable app -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AutoPage" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <!-- Score surface. The PDF page is drawn here; everything else floats over it. -->
+    <div class="score" id="score">
+      <canvas id="scoreCanvas" class="score-canvas"></canvas>
+
+      <div class="score-empty" id="scoreEmpty">
+        <h1 class="title">AutoPage</h1>
+        <p class="lede">Automatic page turning for PDF sheet music.</p>
+        <label class="file-btn">
+          Open a score
+          <input type="file" id="fileInput" accept="application/pdf" hidden />
+        </label>
+      </div>
+    </div>
+
+    <!-- Status strip: page number, mode, and how close the detector is to firing -->
+    <div class="hud" id="hud" hidden>
+      <span class="hud-page" id="hudPage">— / —</span>
+      <span class="hud-mode" id="hudMode" aria-live="polite">Manual</span>
+      <span class="hud-armed" id="hudArmed" hidden>Listening for page end…</span>
+    </div>
+
+    <!-- Page navigation. Always available — the automatic turn never takes these away. -->
+    <div class="nav" id="nav" hidden>
+      <button class="nav-btn" id="prevBtn" aria-label="Previous page">‹</button>
+      <button class="nav-btn" id="nextBtn" aria-label="Next page">›</button>
+    </div>
+
+    <!-- ===== Setup panel ===== -->
+    <section class="panel" id="setupPanel" hidden>
+      <button class="panel-head" id="setupToggle" aria-expanded="true">
+        <span>⚙️ Setup</span>
+        <span class="chevron">▾</span>
+      </button>
+
+      <div class="panel-body">
+        <p class="panel-desc">
+          Rehearse once: play through and tap <b>Mark turn</b> where each page
+          should flip. AutoPage remembers how those moments sound and turns the
+          page for you next time.
+        </p>
+
+        <div class="row">
+          <button id="rehearseBtn" class="btn btn-secondary">Rehearse</button>
+          <button id="markBtn" class="btn btn-primary" disabled>Mark turn</button>
+        </div>
+
+        <label class="field">
+          <span>Tempo (BPM)</span>
+          <input type="number" id="bpmInput" min="30" max="240" value="120" />
+        </label>
+
+        <label class="field">
+          <span>Beats per bar</span>
+          <input type="number" id="meterInput" min="1" max="12" value="4" />
+        </label>
+
+        <label class="field">
+          <span>Turn this many measures early</span>
+          <input type="number" id="leadInput" min="1" max="4" value="1" />
+        </label>
+
+        <label class="field field-check">
+          <input type="checkbox" id="gestureCheck" />
+          <span>Face gesture backup (camera)</span>
+        </label>
+
+        <p class="hint">
+          Nothing is uploaded — audio and video are processed on this device.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
