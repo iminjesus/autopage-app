@@ -27,8 +27,9 @@
         <p class="lede">Automatic page turning for PDF sheet music.</p>
         <label class="file-btn">
           Open a score
-          <input type="file" id="fileInput" accept="application/pdf" hidden />
+          <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden />
         </label>
+        <p class="score-error" id="scoreError" hidden></p>
       </div>
     </div>
 
@@ -91,6 +92,29 @@
     </section>
   </main>
 
+  <!--
+    If the module fails to load — a 404 on vendor/, or a static server handing
+    back the wrong MIME type for a script — no listeners are ever attached and
+    the buttons silently do nothing. Say so instead.
+  -->
+  <script>
+    window.addEventListener("error", (e) => {
+      const box = document.getElementById("scoreError");
+      if (box && e.target && e.target.tagName === "SCRIPT") {
+        box.textContent = "Failed to load app.js — check the browser console.";
+        box.hidden = false;
+      }
+    }, true);
+    setTimeout(() => {
+      if (window.__autopageReady) return;
+      const box = document.getElementById("scoreError");
+      if (!box) return;
+      box.textContent =
+        "The app did not start. Serve this folder over http:// (not file://) " +
+        "and make sure vendor/pdf.js was pulled — see the console for details.";
+      box.hidden = false;
+    }, 2500);
+  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -10,6 +10,12 @@
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
+/* .hud and .nav set `display: flex`, which outranks the UA rule behind the
+   `hidden` attribute — without this they show before a score is even open. */
+[hidden] {
+  display: none !important;
+}
+
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
@@ -86,6 +92,14 @@ body {
 
 .file-btn:hover {
   background: var(--accent-strong);
+}
+
+.score-error {
+  margin: 18px auto 0;
+  max-width: 32em;
+  color: #ff8a8f;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* --- HUD --- */

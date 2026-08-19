@@ -21,9 +21,9 @@
  * STATUS: the score view works. The detector sections below are still stubs.
  */
 
-import * as pdfjsLib from "./vendor/pdf.mjs";
+import * as pdfjsLib from "./vendor/pdf.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
 // --- Tuning constants ---
 const ARM_WINDOW_S = 3.5; // how far either side of the estimate to listen
@@ -68,6 +68,7 @@ const el = {
   meterInput: document.getElementById("meterInput"),
   leadInput: document.getElementById("leadInput"),
   gestureCheck: document.getElementById("gestureCheck"),
+  error: document.getElementById("scoreError"),
 };
 
 /**
@@ -192,6 +193,7 @@ async function openScore(file) {
 
   await showPage(1);
   render();
+window.__autopageReady = true;
 }
 
 // ============================================================
@@ -303,6 +305,7 @@ function turnTo(n) {
   showPage(next);
   resyncTiming(); // every turn re-anchors the estimate, however it was triggered
   render();
+window.__autopageReady = true;
 }
 
 const nextPage = () => turnTo(state.page + 1);
@@ -316,6 +319,7 @@ function fallBackToManual(reason) {
   state.mode = "manual";
   state.armed = false;
   render();
+window.__autopageReady = true;
   console.info("auto disabled:", reason);
 }
 
@@ -340,6 +344,7 @@ function startRehearsal() {
   startListening();
   resyncTiming();
   render();
+window.__autopageReady = true;
 }
 
 /**
@@ -358,13 +363,22 @@ function markTurn() {
 // Wiring
 // ============================================================
 
+function showError(message) {
+  el.error.textContent = message;
+  el.error.hidden = !message;
+}
+
 function loadFile(file) {
   if (!file) return;
+  showError("");
   if (file.type && file.type !== "application/pdf") {
-    console.warn("not a PDF:", file.type);
+    showError(`Not a PDF: ${file.name}`);
     return;
   }
-  openScore(file).catch((err) => console.error("failed to open score:", err));
+  openScore(file).catch((err) => {
+    console.error("failed to open score:", err);
+    showError(`Could not open ${file.name} — ${err.message}`);
+  });
 }
 
 el.fileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
@@ -428,3 +442,4 @@ if ("serviceWorker" in navigator) {
 }
 
 render();
+window.__autopageReady = true;
