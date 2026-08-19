@@ -7,9 +7,11 @@ while you play and turns the page when you reach the end of the current one.
 A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
-**Status: the score view works.** Open a PDF and turn pages by tap, arrow key,
-or a pedal-style Bluetooth remote. The detector — microphone, chroma matcher,
-gesture — is still stubbed out, so nothing turns by itself yet. See
+**Status: automatic turning works.** Rehearse once, then Perform and the pages
+turn themselves. Verified end to end in headless Chromium against a synthetic
+recording — all three turns fired, 1.3–1.6s before the tapped point. The face
+gesture complement is still stubbed, and templates live in memory rather than
+IndexedDB, so they are lost on reload. See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.
@@ -69,9 +71,17 @@ scope for now.
 
 ## Trying it
 
-`fixtures/menuet-in-g.pdf` is a four-page engraving to test with. It was
-generated with LilyPond from an approximate transcription — good enough to
-exercise page turning, not a reference edition.
+`fixtures/menuet-in-g.pdf` is a four-page score to test with. Run
+`python3 tools/make_fixture.py --audio-only` to generate `menuet-in-g.wav`
+alongside it — the same music as audio, so you can play it into the microphone
+and watch the pages turn. It is written in the style of the Petzold minuet
+rather than transcribed from it, and deliberately non-repetitive: an eight-bar
+phrase played four times would make every page end sound identical, which is
+the one thing the matcher cannot resolve.
+
+1. Open the PDF.
+2. **Rehearse** — play, and tap **Mark turn** at each page end.
+3. **Perform** — play again; the pages turn themselves.
 
 ## Running it
 

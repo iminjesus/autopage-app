@@ -55,9 +55,9 @@
 
       <div class="panel-body">
         <p class="panel-desc">
-          Rehearse once: play through and tap <b>Mark turn</b> where each page
-          should flip. AutoPage remembers how those moments sound and turns the
-          page for you next time.
+          Rehearse once: play through and tap <b>Mark turn</b> exactly where each
+          page should flip. AutoPage remembers how those moments sound, and how
+          long each page ran, then turns for you in <b>Perform</b>.
         </p>
 
         <div class="row">
@@ -65,28 +65,19 @@
           <button id="markBtn" class="btn btn-primary" disabled>Mark turn</button>
         </div>
 
-        <label class="field">
-          <span>Tempo (BPM)</span>
-          <input type="number" id="bpmInput" min="30" max="240" value="120" />
-        </label>
+        <button id="performBtn" class="btn btn-primary btn-block" disabled>Perform</button>
 
-        <label class="field">
-          <span>Beats per bar</span>
-          <input type="number" id="meterInput" min="1" max="12" value="4" />
-        </label>
+        <!-- Live match confidence. Visible because the whole design rests on
+             this number staying near zero except at a real page end. -->
+        <div class="meter" id="meter" hidden>
+          <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
+          <span class="meter-value" id="meterValue">0.00</span>
+        </div>
 
-        <label class="field">
-          <span>Turn this many measures early</span>
-          <input type="number" id="leadInput" min="1" max="4" value="1" />
-        </label>
-
-        <label class="field field-check">
-          <input type="checkbox" id="gestureCheck" />
-          <span>Face gesture backup (camera)</span>
-        </label>
+        <div class="trainer-status" id="setupStatus">Open a score to begin.</div>
 
         <p class="hint">
-          Nothing is uploaded — audio and video are processed on this device.
+          Nothing is uploaded — audio is processed on this device.
         </p>
       </div>
     </section>
