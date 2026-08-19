@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v1";
+const CACHE = "autopage-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const ASSETS = [
   "./app.js",
   "./manifest.json",
   "./icon.svg",
+  "./vendor/pdf.mjs",
+  "./vendor/pdf.worker.mjs",
 ];
 
 self.addEventListener("install", (e) => {

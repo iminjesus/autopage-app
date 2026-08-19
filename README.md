@@ -7,8 +7,9 @@ while you play and turns the page when you reach the end of the current one.
 A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
-**Status: design + scaffold.** No working implementation yet. The sections of
-`app.js` define the contracts; the bodies are stubs. See
+**Status: the score view works.** Open a PDF and turn pages by tap, arrow key,
+or a pedal-style Bluetooth remote. The detector — microphone, chroma matcher,
+gesture — is still stubbed out, so nothing turns by itself yet. See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.
@@ -66,6 +67,12 @@ stable tempo, which is what the timing estimate assumes. Practice — stopping,
 repeating a passage, jumping backwards — breaks that assumption and is out of
 scope for now.
 
+## Trying it
+
+`fixtures/menuet-in-g.pdf` is a four-page engraving to test with. It was
+generated with LilyPond from an approximate transcription — good enough to
+exercise page turning, not a reference edition.
+
 ## Running it
 
 Static site, no dependencies, no build step — same shape as its sibling project
@@ -75,4 +82,10 @@ Static site, no dependencies, no build step — same shape as its sibling projec
 python3 -m http.server 8000
 ```
 
+On Windows use `python` rather than `python3` — `python3` is a Microsoft Store
+alias stub that exits immediately.
+
 Microphone and camera need `https` or `http://localhost`.
+
+pdf.js is vendored under `vendor/` (Apache 2.0) rather than loaded from a CDN,
+so the app keeps working offline once installed.

@@ -18,9 +18,12 @@
  * A face gesture is always live as a complement — forward, back, and a resync of
  * the timing estimate. See docs/design.md.
  *
- * STATUS: scaffold. The sections below define the contracts; the bodies are
- * still TODO.
+ * STATUS: the score view works. The detector sections below are still stubs.
  */
+
+import * as pdfjsLib from "./vendor/pdf.mjs";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.mjs";
 
 // --- Tuning constants ---
 const ARM_WINDOW_S = 3.5; // how far either side of the estimate to listen
@@ -28,9 +31,11 @@ const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
 const MATCH_THRESHOLD = 0.8; // deliberately high: a miss beats a wrong turn
 const TEMPLATE_MEASURES = 3; // context length; one measure is not distinctive
 const GESTURE_HOLD_MS = 400; // suppresses gestures that happen while playing
+const MAX_CACHED_PAGES = 6;
+const MAX_DPR = 2; // a 3x phone triples raster cost for no gain on a score
 
 const state = {
-  doc: null, // loaded PDF handle
+  doc: null,
   page: 1,
   pageCount: 0,
   bpm: 120,
@@ -38,7 +43,7 @@ const state = {
   leadMeasures: 1,
   mode: "manual", // "manual" | "auto" | "rehearsing"
   armed: false,
-  pageStartedAt: 0, // audio-clock time the current page began
+  pageStartedAt: 0, // seconds; when the current page began
   templates: new Map(), // page number -> chroma template
   measuresPerPage: new Map(), // page number -> measure count (from rehearsal)
 };
@@ -65,6 +70,13 @@ const el = {
   gestureCheck: document.getElementById("gestureCheck"),
 };
 
+/**
+ * Wall clock, in seconds. The arming window tolerates several seconds of error
+ * by design, so there is no reason to spin up an AudioContext for it — the
+ * audio clock belongs to feature framing, once the microphone is running.
+ */
+const nowSeconds = () => performance.now() / 1000;
+
 let audioCtx = null;
 
 function ensureAudio() {
@@ -79,18 +91,107 @@ function ensureAudio() {
 // The app deliberately does not analyse the page image. No staff detection, no
 // barlines, no optical music recognition: the turn trigger comes from audio, so
 // the renderer only has to put pixels on screen.
+//
+// It does have to be *fast*. A page turn that visibly stutters is worse than no
+// automation at all, so neighbouring pages are rasterized ahead of time and the
+// turn itself is only a blit.
 // ============================================================
 
-/** Load a PDF from a File and render page 1. */
-async function openScore(file) {
-  // TODO: pdf.js must be vendored locally — no CDN, the app has to work offline.
-  console.warn("openScore: not implemented", file && file.name);
+const pageCache = new Map(); // "page@layout" -> {canvas, cssW, cssH}
+const pending = new Map(); // same key -> in-flight rasterize promise
+let showToken = 0; // guards against a slow render landing after a newer turn
+
+function layoutKey() {
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  const r = el.score.getBoundingClientRect();
+  return `${Math.round(r.width)}x${Math.round(r.height)}@${dpr}`;
 }
 
-/** Draw `n` into the canvas, sized to fit the viewport. */
-async function renderPage(n) {
-  // TODO: render via pdf.js at a fixed scale so coordinates stay stable.
-  console.warn("renderPage: not implemented", n);
+function fitScale(baseViewport) {
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  const r = el.score.getBoundingClientRect();
+  const scale = Math.min(r.width / baseViewport.width, r.height / baseViewport.height);
+  return { scale: scale * dpr, dpr };
+}
+
+async function rasterize(n) {
+  const page = await state.doc.getPage(n);
+  const { scale, dpr } = fitScale(page.getViewport({ scale: 1 }));
+  const viewport = page.getViewport({ scale });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
+
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  page.cleanup();
+
+  return { canvas, cssW: canvas.width / dpr, cssH: canvas.height / dpr };
+}
+
+/** Rasterize into the cache, reusing an in-flight render for the same key. */
+function rasterizeCached(n) {
+  const key = `${n}@${layoutKey()}`;
+  const hit = pageCache.get(key);
+  if (hit) return Promise.resolve(hit);
+  if (pending.has(key)) return pending.get(key);
+
+  const job = rasterize(n)
+    .then((entry) => {
+      pageCache.set(key, entry);
+      while (pageCache.size > MAX_CACHED_PAGES) {
+        pageCache.delete(pageCache.keys().next().value);
+      }
+      return entry;
+    })
+    .finally(() => pending.delete(key));
+
+  pending.set(key, job);
+  return job;
+}
+
+async function showPage(n) {
+  if (!state.doc) return;
+  const token = ++showToken;
+
+  const entry = await rasterizeCached(n);
+  if (token !== showToken) return; // a newer turn already won
+
+  el.canvas.width = entry.canvas.width;
+  el.canvas.height = entry.canvas.height;
+  el.canvas.style.width = `${entry.cssW}px`;
+  el.canvas.style.height = `${entry.cssH}px`;
+  el.canvas.getContext("2d", { alpha: false }).drawImage(entry.canvas, 0, 0);
+
+  // The next page is the one a turn will need; the previous one is what a
+  // mistaken turn has to fall back to. Both are worth having ready.
+  if (n + 1 <= state.pageCount) rasterizeCached(n + 1).catch(() => {});
+  if (n - 1 >= 1) rasterizeCached(n - 1).catch(() => {});
+}
+
+async function openScore(file) {
+  const data = await file.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+
+  state.doc = doc;
+  state.pageCount = doc.numPages;
+  state.page = 1;
+  pageCache.clear();
+  pending.clear();
+  resyncTiming();
+
+  el.empty.hidden = true;
+  el.canvas.hidden = false;
+  el.hud.hidden = false;
+  el.nav.hidden = false;
+  el.setupPanel.hidden = false;
+  collapseSetup(true); // the panel overlaps the forward tap zone; get it out of the way
+
+  await showPage(1);
+  render();
 }
 
 // ============================================================
@@ -120,7 +221,7 @@ function isArmed(now) {
  * or manual — which is what keeps drift from accumulating across pages.
  */
 function resyncTiming() {
-  state.pageStartedAt = ensureAudio().currentTime;
+  state.pageStartedAt = nowSeconds();
 }
 
 // ============================================================
@@ -199,7 +300,7 @@ function turnTo(n) {
   const next = Math.min(Math.max(n, 1), state.pageCount);
   if (next === state.page) return;
   state.page = next;
-  renderPage(next);
+  showPage(next);
   resyncTiming(); // every turn re-anchors the estimate, however it was triggered
   render();
 }
@@ -225,6 +326,8 @@ function render() {
   el.hudMode.textContent =
     state.mode === "auto" ? "Auto" : state.mode === "rehearsing" ? "Rehearsing" : "Manual";
   el.hudArmed.hidden = !state.armed;
+  el.prevBtn.disabled = state.page <= 1;
+  el.nextBtn.disabled = state.page >= state.pageCount;
 }
 
 // ============================================================
@@ -255,9 +358,23 @@ function markTurn() {
 // Wiring
 // ============================================================
 
-el.fileInput.addEventListener("change", (e) => {
-  const file = e.target.files && e.target.files[0];
-  if (file) openScore(file);
+function loadFile(file) {
+  if (!file) return;
+  if (file.type && file.type !== "application/pdf") {
+    console.warn("not a PDF:", file.type);
+    return;
+  }
+  openScore(file).catch((err) => console.error("failed to open score:", err));
+}
+
+el.fileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
+
+// Dropping a file onto the score is the fastest way in once you have used the
+// app before and no longer need the empty state's button.
+el.score.addEventListener("dragover", (e) => e.preventDefault());
+el.score.addEventListener("drop", (e) => {
+  e.preventDefault();
+  loadFile(e.dataTransfer && e.dataTransfer.files[0]);
 });
 
 el.nextBtn.addEventListener("click", nextPage);
@@ -278,16 +395,30 @@ el.gestureCheck.addEventListener("change", () => {
   if (el.gestureCheck.checked) startGesture();
 });
 
+function collapseSetup(collapsed) {
+  el.setupToggle.setAttribute("aria-expanded", String(!collapsed));
+  el.setupPanel.classList.toggle("collapsed", collapsed);
+}
+
 el.setupToggle.addEventListener("click", () => {
-  const open = el.setupToggle.getAttribute("aria-expanded") === "true";
-  el.setupToggle.setAttribute("aria-expanded", String(!open));
-  el.setupPanel.classList.toggle("collapsed", open);
+  collapseSetup(el.setupToggle.getAttribute("aria-expanded") === "true");
 });
 
 // Keyboard and pedal-style remotes both arrive as arrow keys.
 document.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowRight" || e.key === "PageDown") nextPage();
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") nextPage();
   if (e.key === "ArrowLeft" || e.key === "PageUp") prevPage();
+});
+
+// Rasters are sized to the viewport, so a resize invalidates every one of them.
+let resizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    pageCache.clear();
+    showPage(state.page);
+  }, 150);
 });
 
 if ("serviceWorker" in navigator) {

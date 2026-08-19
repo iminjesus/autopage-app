@@ -127,6 +127,7 @@ body {
 .nav {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   pointer-events: none;
@@ -152,6 +153,7 @@ body {
 
 .panel {
   position: absolute;
+  z-index: 2; /* controls must stay clickable where they overlap the tap zones */
   right: 16px;
   bottom: 16px;
   width: min(320px, calc(100% - 32px));
