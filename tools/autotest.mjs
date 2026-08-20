@@ -2,7 +2,7 @@ import { chromium } from "playwright-core";
 const browser = await chromium.launch({
   executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
-         "--use-file-for-fake-audio-capture=/workspace/autopage-app/fixtures/menuet-in-g.wav%noloop"],
+         `--use-file-for-fake-audio-capture=${process.argv[3] || "/workspace/autopage-app/fixtures/menuet-in-g.wav"}%noloop`],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];

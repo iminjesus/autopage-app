@@ -74,6 +74,16 @@ Measures times beats-per-bar times seconds-per-beat is the page's length. The
 anchor resets at every turn, automatic or manual, so error cannot accumulate
 across pages.
 
+It counts **played** time, not wall time. Nothing starts until the first note is
+heard, and the clock stops advancing whenever the instrument falls silent, so a
+page cannot turn under a player who is sitting still — reading ahead, tuning, or
+just not started yet. Playing is judged against the room's own noise floor
+rather than an absolute level, and silence shorter than a second is treated as a
+rest rather than a stop.
+
+Without a microphone there is nothing to wait for, so the clock starts when
+Start is pressed and the tempo has to be right. The app says so.
+
 The lead is subtracted **once**. After turning a bar early the anchor already
 sits a bar before the new page's first bar, so each later page is exactly its
 own length; subtracting the lead again would put the app another bar behind the
@@ -152,6 +162,8 @@ next open.
 
 | Situation | Behaviour |
 |---|---|
+| Nobody is playing | Nothing turns. The clock has not started. |
+| Player stops mid-piece | The clock stops with them and resumes on the next note. |
 | Scanned score, no staves found | Manual turning, stated plainly. |
 | Tempo set wrong | The match still fires on the music. Measured at 17% off, turns moved under 0.15s. |
 | Matcher misses | The schedule still turns the page. |

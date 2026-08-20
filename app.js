@@ -35,6 +35,8 @@ const MATCH_THRESHOLD = 0.85; // measured: ~0.9 at a page end, ~0.5 elsewhere
 const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
 const ARM_WINDOW_S = 3.5; // floor for the detection window, either side
 const ARM_WINDOW_FRACTION = 0.15; // widen it for a performance taken off-tempo
+const SOUND_MARGIN_DB = 10; // how far above the room's own noise counts as playing
+const SILENCE_HOLD_S = 1.0; // silence shorter than this is a rest, not a stop
 const MIN_HZ = 70;
 const MAX_HZ = 5000;
 const MAX_CACHED_PAGES = 6;
@@ -55,6 +57,8 @@ const state = {
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
   sonorities: new Map(), // page -> harmonies read off the page, in order
   templates: new Map(), // page -> chroma heard just before a previous turn
+  playing: false, // is anything actually sounding right now
+  started: false, // has the performance begun at all
   turnAt: null, // seconds; when the schedule says this page ends
   anchorIsEarly: false, // the anchor sits `leadBars` before the page's first bar
 };
@@ -605,7 +609,41 @@ let micStream = null;
 let analyser = null;
 let featureTimer = null;
 let spectrum = null;
+let noiseFloor = -80;
+let silentSince = null;
 const chromaLog = []; // {t, c: Float32Array(12)}, oldest first
+
+/** Loudest bin in the musical band, in dB. */
+function frameLevel(db) {
+  const binHz = audioCtx.sampleRate / FFT_SIZE;
+  let peak = -Infinity;
+  for (let i = 1; i < db.length; i++) {
+    const f = i * binHz;
+    if (f < MIN_HZ || f > MAX_HZ) continue;
+    if (db[i] > peak) peak = db[i];
+  }
+  return Math.max(peak, -100);
+}
+
+/**
+ * Is the instrument sounding?
+ *
+ * Judged against the room rather than an absolute level, because a quiet room
+ * and a loud one disagree by tens of dB. The floor drops instantly and recovers
+ * slowly, so a sustained note cannot drag it up and mask itself.
+ */
+function updatePlaying(db) {
+  const level = frameLevel(db);
+  noiseFloor = level < noiseFloor ? level : noiseFloor + 0.02;
+  noiseFloor = Math.min(Math.max(noiseFloor, -100), -30);
+
+  const loud = level > noiseFloor + SOUND_MARGIN_DB;
+  if (loud) silentSince = null;
+  else if (silentSince === null) silentSince = nowSeconds();
+
+  // A rest is silence too. Only a gap longer than a phrase counts as stopping.
+  state.playing = loud || nowSeconds() - silentSince < SILENCE_HOLD_S;
+}
 
 async function startListening() {
   if (analyser) return;
@@ -672,12 +710,33 @@ function chromaFrom(db) {
 
 function onFeatureFrame() {
   analyser.getFloatFrequencyData(spectrum);
+  updatePlaying(spectrum);
   chromaLog.push({ t: nowSeconds(), c: chromaFrom(spectrum) });
 
   const cutoff = nowSeconds() - BUFFER_S;
   while (chromaLog.length && chromaLog[0].t < cutoff) chromaLog.shift();
 
-  if (state.mode === "auto") detect();
+  if (state.mode !== "auto") return;
+
+  // The schedule counts *played* time, not wall time. Before the first note it
+  // has not started, and while nothing is sounding it does not advance — a page
+  // must never turn under a player who is sitting still.
+  if (!state.started) {
+    if (!state.playing) {
+      state.pageStartedAt = nowSeconds();
+      scheduleTurn();
+      return;
+    }
+    state.started = true;
+    resyncTiming();
+    setStatus("Following the music.");
+  } else if (!state.playing) {
+    state.pageStartedAt += HOP_MS / 1000;
+    state.turnAt += HOP_MS / 1000;
+    return;
+  }
+
+  detect();
 }
 
 /** The last `seconds` of chroma frames, oldest first. */
@@ -856,11 +915,12 @@ function showError(message) {
 
 function render() {
   el.hudPage.textContent = state.pageCount ? `${state.page} / ${state.pageCount}` : "— / —";
-  el.hudMode.textContent = state.mode === "auto" ? "Auto" : "Manual";
+  el.hudMode.textContent =
+    state.mode !== "auto" ? "Manual" : state.started ? "Auto" : "Waiting";
   el.prevBtn.disabled = state.page <= 1;
   el.nextBtn.disabled = state.page >= state.pageCount;
 
-  const bars = state.mode === "auto" ? barsRemaining(nowSeconds()) : null;
+  const bars = state.mode === "auto" && state.started ? barsRemaining(nowSeconds()) : null;
   el.hudArmed.hidden = bars === null;
   if (bars !== null) {
     el.hudArmed.textContent =
@@ -913,13 +973,23 @@ async function startAuto() {
   turnTo(1);
   state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
   resyncTiming();
-  // The microphone is optional: it only lets a second run through the score be
-  // guided by the music instead of the clock. Denying it costs nothing today.
-  startListening().catch((err) => console.info("running without audio:", err.message));
+
+  let heard = true;
+  try {
+    await startListening();
+    state.started = false; // wait for the first note before any clock runs
+    setStatus("Ready — start playing.");
+  } catch (err) {
+    // Without a microphone there is nothing to wait for and nothing to confirm
+    // with, so the clock starts here and the tempo has to be right.
+    heard = false;
+    state.started = true;
+    setStatus(`No microphone (${err.message}) — turning on the clock alone.`);
+  }
 
   tickTimer = setInterval(() => {
     const now = nowSeconds();
-    if (state.turnAt === null) return render();
+    if (state.turnAt === null || !state.started) return render();
     // With a template the schedule waits for the audio and only steps in when
     // the window closes; without one it is all there is.
     const deadline = state.templates.has(state.page) ? state.turnAt + armSlack() : state.turnAt;
@@ -928,7 +998,7 @@ async function startAuto() {
   }, 100);
 
   render();
-  setStatus(`Turning on schedule at ${state.bpm} BPM. Start playing.`);
+  if (heard) el.hudMode.textContent = "Waiting";
 }
 
 function stopAuto() {
@@ -936,6 +1006,8 @@ function stopAuto() {
   collapseSetup(false);
   state.turnAt = null;
   state.armed = false;
+  state.started = false;
+  state.playing = false;
   clearInterval(tickTimer);
   tickTimer = null;
   stopListening();

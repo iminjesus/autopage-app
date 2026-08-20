@@ -70,7 +70,7 @@ the one thing the matcher cannot resolve.
 
 1. Open the PDF — it reports the measures it found on each page.
 2. Set a rough tempo, by typing it or tapping it. It does not have to be right.
-3. Press **Start** and play.
+3. Press **Start** and play. Nothing moves until it hears the first note.
 
 Measured against the fixture: turns land 2.1–2.4s before each page ends, and
 setting the tempo 17% wrong moves them by less than 0.15s — the audio is doing
