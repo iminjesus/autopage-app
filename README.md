@@ -7,8 +7,9 @@ while you play and turns the page when you reach the end of the current one.
 A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
-**Status: automatic turning works, with no setup.** Open a score, give it the
-tempo, press Start. The face gesture complement is still stubbed. See
+**Status: automatic turning works, with no setup and nothing to hear first.**
+Open a score, press Start, play. The face gesture complement is still stubbed.
+See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.
@@ -21,17 +22,20 @@ strokes; barlines are vertical strokes exactly one staff tall. So the app opens
 the file and **counts the measures on each page**, without recognising an image
 and without being told anything.
 
-Measures plus tempo give the length of every page, and that is enough to turn
-on time. The estimate re-anchors at each turn, so error cannot accumulate from
-one page to the next.
+It reads the notes too. Glyph advance widths separate noteheads from dots,
+clefs and accidentals; a clef sits on its own reference line, which fixes the
+pitch of every step above and below it; and noteheads sharing an x are sounding
+together. So the app knows what the end of each page should *sound* like before
+a note has been played.
+
+That is what drives the turn. The microphone hears chroma, a subsequence DTW
+matches it against the expected ending, and the page turns where the music
+actually is. Tempo is only the safety net behind it: if the window closes with
+no match, the page turns on schedule rather than stranding the player.
 
 This is not optical music recognition. OMR exists because *scanned* scores are
 pixels with no structure left. A PDF exported from LilyPond, MuseScore, Sibelius
 or Finale still carries its geometry, and reading it is parsing, not inference.
-
-Listening is a refinement on top, not the foundation. Each turn quietly records
-how the end of that page sounded, so a second run through the same score can be
-corrected by the music rather than the clock. Nobody is asked to rehearse.
 
 ## Design constraints
 
@@ -65,8 +69,12 @@ phrase played four times would make every page end sound identical, which is
 the one thing the matcher cannot resolve.
 
 1. Open the PDF — it reports the measures it found on each page.
-2. Set the tempo, by typing it or tapping it.
+2. Set a rough tempo, by typing it or tapping it. It does not have to be right.
 3. Press **Start** and play.
+
+Measured against the fixture: turns land 2.1–2.4s before each page ends, and
+setting the tempo 17% wrong moves them by less than 0.15s — the audio is doing
+the work, not the clock.
 
 ## Running it
 

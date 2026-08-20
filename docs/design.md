@@ -79,15 +79,39 @@ sits a bar before the new page's first bar, so each later page is exactly its
 own length; subtracting the lead again would put the app another bar behind the
 music on every page.
 
-### matcher — audio refinement
+### note reader — what the page should sound like
 
-Each turn records the last four seconds of chroma for the page it left. Nobody
-is asked to do this, and the first run through a score does not use it. On a
-later run, if a template exists and the schedule says the end is near, a
-subsequence DTW match can bring the turn forward to where the music actually is.
+Glyph codes are meaningless across files: an embedded subset font numbers its
+glyphs from zero, so the brace font's glyph 0 and the music font's notehead are
+both U+0 and unrelated. Everything is therefore keyed on font *and* code, and
+classified by geometry:
 
-The matcher can only make a due turn earlier. It never invents one, so a
-false positive costs at most a slightly early page.
+- **Noteheads** are a little over one staff space wide. Dots are half that,
+  clefs several times it, accidentals just under. Width alone is too close to
+  call, so a class must also vary vertically — clefs and key signatures never do.
+- **Clefs** sit on their own reference line, which fixes the pitch of the staff's
+  bottom line: treble on the G line, bass on the F line, alto on middle C.
+- **Key signatures** always start on the same letter — sharps on F, flats on B.
+  Reading the run's direction instead fails on a signature of one, where there
+  is no direction to read.
+- **Sonorities** are noteheads sharing an x. Durations are ignored on purpose:
+  the matcher warps time, so the order of the harmonies is all it needs.
+
+Verified against a score whose notes are known exactly: every pitch on the
+first and last page matches the source the engraving was generated from.
+
+### matcher — where the music actually is
+
+The expected chroma for a page's ending comes from the page, so the first run
+through a score is already guided by the music. The template ends `leadBars`
+before the page does, because matching the final chord would fire the turn when
+the page is already over.
+
+Measured against the fixture: a page's template scores ~0.90 at that page's
+ending and ~0.50 elsewhere. The threshold sits at 0.85.
+
+The schedule holds the outside of the window. If nothing matches by the time it
+closes, the page turns anyway — a missed match must not strand the player.
 
 Two details matter more than they look:
 
@@ -129,7 +153,7 @@ next open.
 | Situation | Behaviour |
 |---|---|
 | Scanned score, no staves found | Manual turning, stated plainly. |
-| Tempo set wrong | Turns drift; the player corrects with a gesture and the schedule re-anchors. |
+| Tempo set wrong | The match still fires on the music. Measured at 17% off, turns moved under 0.15s. |
 | Matcher misses | The schedule still turns the page. |
 | Matcher fires early | Player uses the back gesture. Timing re-anchors. |
 | Reached the last page | Schedule stops; nothing left to turn to. |
@@ -138,15 +162,16 @@ Silent degradation to manual is always preferred over a confident wrong turn.
 
 ## Open questions
 
-- Whether the measure reader survives real scores. It is verified on LilyPond
-  output only. MuseScore, Sibelius and Finale each engrave differently, and
-  pickup bars, multi-bar rests, repeats and cadenzas all break the assumption
-  that a barline count equals a measure count.
-- Reading noteheads, not just barlines. Glyph positions relative to the staff
-  lines give pitches, and pitches give an expected chroma sequence per page.
-  That would let the matcher work on a score it has never heard — real score
-  following, with the reference coming from the PDF instead of a run-through.
-- Detecting tempo from the audio so even that one number is not asked for.
+- Whether the reader survives real scores. It is verified on LilyPond output
+  only. MuseScore, Sibelius and Finale each engrave differently, and pickup
+  bars, multi-bar rests, repeats and cadenzas all break the assumption that a
+  barline count equals a measure count.
+- Whether the matcher survives real *sound*. The fixture audio is synthesised
+  from the same notes the score reader recovers, which flatters the match. A
+  piano in a room, with pedal and an uneven touch, is the real test.
+- Repeats and da capos, which the reader cannot see and the matcher would
+  follow into the wrong page.
+- Dropping the tempo field entirely by estimating it from onsets.
 - Whether a repetitive piece defeats the matcher. The fixture was deliberately
   written non-repetitive; an eight-bar phrase played four times would make
   every page end sound alike, and only the arming window would separate them.

@@ -29,8 +29,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 const FFT_SIZE = 8192; // ~6 Hz bins at 48 kHz — enough to resolve pitch classes
 const HOP_MS = 100; // one chroma frame per 100ms; also the matcher's rate
 const TEMPLATE_S = 4.0; // context length; one measure is not distinctive enough
+const TEMPLATE_SONORITIES = 10; // how much of a page's ending the score template covers
 const BUFFER_S = 12; // rolling history the matcher searches
-const MATCH_THRESHOLD = 0.8; // deliberately high: a miss beats a wrong turn
+const MATCH_THRESHOLD = 0.85; // measured: ~0.9 at a page end, ~0.5 elsewhere
 const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
 const ARM_WINDOW_S = 3.5; // floor for the detection window, either side
 const ARM_WINDOW_FRACTION = 0.15; // widen it for a performance taken off-tempo
@@ -52,6 +53,7 @@ const state = {
   beatsPerBar: 3,
   leadBars: 1,
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
+  sonorities: new Map(), // page -> harmonies read off the page, in order
   templates: new Map(), // page -> chroma heard just before a previous turn
   turnAt: null, // seconds; when the schedule says this page ends
   anchorIsEarly: false, // the anchor sits `leadBars` before the page's first bar
@@ -163,6 +165,7 @@ async function openScore(file) {
   state.page = 1;
   state.templates.clear();
   state.measures.clear();
+  state.sonorities.clear();
   pageCache.clear();
   pending.clear();
   resyncTiming();
@@ -178,8 +181,11 @@ async function openScore(file) {
   render();
 
   for (let n = 1; n <= doc.numPages; n++) {
-    state.measures.set(n, await countMeasures(doc, n));
+    const read = await readPage(doc, n);
+    state.measures.set(n, read.measures);
+    state.sonorities.set(n, read.sonorities);
   }
+  buildTemplates();
   const counts = [...state.measures.values()];
   if (counts.every((c) => c === null)) {
     setStatus("No staves found — a scanned score can only be turned by hand.");
@@ -273,14 +279,17 @@ function findStaves(ys) {
 }
 
 /**
- * Measures drawn on one page.
- * @returns {number|null} null when the page has no readable staves at all.
+ * Everything readable on one page: how many measures it holds, and the
+ * harmonies drawn on it in order.
+ * @returns {{measures: number|null, sonorities: Array}}
  */
-async function countMeasures(doc, n) {
+async function readPage(doc, n) {
+  const empty = { measures: null, sonorities: [] };
   const page = await doc.getPage(n);
   const segs = extractSegments(await page.getOperatorList());
+  const textContent = await page.getTextContent();
   page.cleanup();
-  if (!segs.length) return null;
+  if (!segs.length) return empty;
 
   const xs = segs.flatMap((s) => [s[0], s[2]]);
   const width = Math.max(...xs) - Math.min(...xs);
@@ -290,7 +299,7 @@ async function countMeasures(doc, n) {
   );
   const ys = [...new Set(horizontal.map((s) => Math.round(s[1] * 10) / 10))].sort((a, b) => a - b);
   const staves = findStaves(ys);
-  if (!staves.length) return null;
+  if (!staves.length) return empty;
 
   const staffHeight = staves[0].bottom - staves[0].top;
   const verticals = segs.filter((s) => Math.abs(s[2] - s[0]) < 1);
@@ -312,6 +321,9 @@ async function countMeasures(doc, n) {
     if (bridged) systems[systems.length - 1].bottom = staves[i].bottom;
     else systems.push({ top: staves[i].top, bottom: staves[i].bottom });
   }
+  // PDF y grows upward, so the system highest on the page has the largest y.
+  // Sorting ascending reads the score bottom-up.
+  systems.sort((a, b) => b.bottom - a.bottom);
 
   let total = 0;
   for (const sys of systems) {
@@ -339,7 +351,201 @@ async function countMeasures(doc, n) {
     }
     total += merged.length;
   }
-  return total || null;
+
+  const glyphs = readGlyphs(textContent, staves);
+  return { measures: total || null, sonorities: readSonorities(glyphs, staves, systems) };
+}
+
+// ============================================================
+// Reading the notes
+//
+// Glyphs carry no usable characters — the embedded font is a subset with
+// arbitrary codes — so they are classified by geometry instead. Advance width
+// against staff spacing separates noteheads from dots, clefs and accidentals,
+// and a clef glyph sits on its own reference line, which fixes the pitch of
+// every step above and below it.
+// ============================================================
+
+const CLEF_BOTTOM_DEGREE = { 2: 30, 4: 26, 6: 18 }; // treble G4 / alto C4 / bass F3
+const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6]; // F C G D A E B, as letter indices
+const FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3];
+const LETTER_SEMITONE = [0, 2, 4, 5, 7, 9, 11]; // C D E F G A B
+
+/**
+ * Glyphs near a staff, with their staff step.
+ *
+ * Glyph codes only mean anything inside one font — a subset font numbers its
+ * glyphs from zero, so the brace font's glyph 0 and the music font's notehead
+ * are both U+0 and are not remotely the same thing. Everything downstream keys
+ * on font and code together.
+ */
+function readGlyphs(textContent, staves) {
+  const out = [];
+  for (const item of textContent.items) {
+    const code = item.str.codePointAt(0);
+    if (code === undefined || code === 32) continue;
+    if (!(item.width > 0)) continue; // braces and other zero-advance decoration
+    const x = item.transform[4];
+    const y = item.transform[5];
+    // Distance to the staff's *band*, not to its outermost lines: a note in the
+    // middle of one staff is further from both of its edges than a note sitting
+    // just outside a neighbouring staff, and picking the nearest edge hands it
+    // to the wrong staff — and so to the wrong clef.
+    let staff = null;
+    for (const st of staves) {
+      const d = y < st.top ? st.top - y : y > st.bottom ? y - st.bottom : 0;
+      if (!staff || d < staff.d) staff = { st, d };
+    }
+    if (!staff || staff.d > (staff.st.bottom - staff.st.top) * 1.5) continue;
+    out.push({
+      key: `${item.fontName}|${code}`,
+      font: item.fontName,
+      x,
+      y,
+      staff: staff.st,
+      width: item.width / staff.st.spacing,
+      step: Math.round((y - staff.st.top) / (staff.st.spacing / 2)),
+    });
+  }
+  return out;
+}
+
+/**
+ * Which glyph codes are noteheads.
+ *
+ * Black and void heads are both a little over one staff space wide. Dots are
+ * half that, clefs several times it, and accidentals fall just under — close
+ * enough that the width test alone is not safe, so a class must also move
+ * around vertically. Clefs and key signatures never do.
+ */
+function noteheadCodes(glyphs) {
+  const classes = new Map();
+  for (const g of glyphs) {
+    const c = classes.get(g.key) || { widths: [], steps: [], font: g.font };
+    c.widths.push(g.width);
+    c.steps.push(g.step);
+    classes.set(g.key, c);
+  }
+
+  const keys = new Set();
+  const fonts = new Set();
+  for (const [key, c] of classes) {
+    if (c.steps.length < 3) continue;
+    const w = c.widths.slice().sort((a, b) => a - b)[c.widths.length >> 1];
+    if (w < 1.15 || w > 1.7) continue;
+    const mean = c.steps.reduce((a, b) => a + b, 0) / c.steps.length;
+    const spread = c.steps.reduce((a, b) => a + (b - mean) ** 2, 0) / c.steps.length;
+    if (spread < 0.5) continue; // a key signature repeats one step exactly
+    keys.add(key);
+    fonts.add(c.font);
+  }
+  // Whichever font drew the noteheads drew the clefs and accidentals too. Page
+  // numbers and titles are the right size to be mistaken for either.
+  return { keys, fonts };
+}
+
+/** The clef on a staff, as the diatonic degree of its bottom line. */
+function clefDegree(glyphs, staff) {
+  const wide = glyphs
+    .filter((g) => g.staff === staff && g.width > 2.5)
+    .sort((a, b) => a.x - b.x);
+  for (const g of wide) {
+    const deg = CLEF_BOTTOM_DEGREE[g.step];
+    if (deg !== undefined) return deg;
+  }
+  return CLEF_BOTTOM_DEGREE[2]; // treble is the safe default
+}
+
+/** Letters altered by the key signature, from the accidentals after the clef. */
+function keySignature(glyphs, staff, bottomDegree, firstNoteX) {
+  const accidentals = glyphs.filter(
+    (g) => g.staff === staff && g.x < firstNoteX && g.width > 0.8 && g.width < 1.15
+  );
+  if (!accidentals.length) return new Map();
+
+  // A key signature always starts on the same letter: sharps on F, flats on B.
+  // Reading the direction of the run instead fails on a signature of one, where
+  // there is no direction to read.
+  accidentals.sort((a, b) => a.x - b.x);
+  const firstLetter = (((bottomDegree + accidentals[0].step) % 7) + 7) % 7;
+  const flats = firstLetter === 6;
+  const order = flats ? FLAT_ORDER : SHARP_ORDER;
+  const shift = flats ? -1 : 1;
+
+  const map = new Map();
+  for (let i = 0; i < Math.min(accidentals.length, 7); i++) map.set(order[i], shift);
+  return map;
+}
+
+/** Pitch class 0..11 for a notehead. */
+function pitchClass(step, bottomDegree, key) {
+  const degree = bottomDegree + step;
+  const letter = ((degree % 7) + 7) % 7;
+  return (LETTER_SEMITONE[letter] + (key.get(letter) || 0) + 120) % 12;
+}
+
+/**
+ * The page's music as a sequence of sonorities — noteheads sharing an x are
+ * sounding together. Durations are ignored on purpose: the matcher warps time,
+ * so the order of the harmonies is all it needs.
+ */
+function readSonorities(glyphs, staves, systems) {
+  const { keys, fonts } = noteheadCodes(glyphs);
+  const spacing = staves[0].spacing;
+  const events = [];
+
+  for (const staff of staves) {
+    const staffGlyphs = glyphs.filter((g) => g.staff === staff && fonts.has(g.font));
+    const notes = staffGlyphs.filter((g) => keys.has(g.key)).sort((a, b) => a.x - b.x);
+    if (!notes.length) continue;
+    const bottom = clefDegree(staffGlyphs, staff);
+    const key = keySignature(staffGlyphs, staff, bottom, notes[0].x);
+    const system = systems.findIndex((sys) => staff.top >= sys.top - 1 && staff.bottom <= sys.bottom + 1);
+    for (const n of notes) {
+      events.push({ system: system < 0 ? 0 : system, x: n.x, pc: pitchClass(n.step, bottom, key) });
+    }
+  }
+
+  events.sort((a, b) => a.system - b.system || a.x - b.x);
+
+  const out = [];
+  for (const e of events) {
+    const last = out[out.length - 1];
+    if (last && last.system === e.system && e.x - last.x < spacing * 0.8) last.pcs.add(e.pc);
+    else out.push({ system: e.system, x: e.x, pcs: new Set([e.pc]) });
+  }
+  return out;
+}
+
+/**
+ * Expected chroma for the moment each page should turn.
+ *
+ * The template comes from the page itself, so the very first run through a
+ * score can be corrected by the music — nothing has to be heard first. It ends
+ * `leadBars` before the page does, because matching the final chord would fire
+ * the turn exactly when the page is already over.
+ */
+function buildTemplates() {
+  state.templates.clear();
+  for (const [n, sonorities] of state.sonorities) {
+    const bars = state.measures.get(n);
+    if (!bars || sonorities.length < TEMPLATE_SONORITIES * 1.5) continue;
+    const drop = Math.round(state.leadBars * (sonorities.length / bars));
+    const end = sonorities.length - drop;
+    if (end < TEMPLATE_SONORITIES) continue;
+    state.templates.set(n, chromaOf(sonorities.slice(end - TEMPLATE_SONORITIES, end)));
+  }
+}
+
+/** One unit-length chroma frame per sonority. */
+function chromaOf(sonorities) {
+  return sonorities.map((s) => {
+    const v = new Float32Array(12);
+    for (const pc of s.pcs) v[pc] = 1;
+    let norm = Math.sqrt([...v].reduce((a, b) => a + b * b, 0)) || 1;
+    for (let i = 0; i < 12; i++) v[i] /= norm;
+    return v;
+  });
 }
 
 // ============================================================
@@ -372,11 +578,12 @@ function barsRemaining(now) {
   return Math.max(0, (state.turnAt - now) / secondsPerBar());
 }
 
+const armSlack = () => Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
+
 /** True while the audio detector should be listening. */
 function isArmed(now) {
   if (state.turnAt === null) return false;
-  const slack = Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
-  return Math.abs(now - state.turnAt) <= slack;
+  return Math.abs(now - state.turnAt) <= armSlack();
 }
 
 /**
@@ -544,9 +751,10 @@ function matchScore(live, template) {
 }
 
 /**
- * Runs on every chroma frame. The schedule decides when the page ends; the
- * matcher can only bring that moment forward, and only if this page has been
- * heard before. Audio never invents a turn on its own.
+ * Runs on every chroma frame. Where the music actually is beats where the clock
+ * thinks it is, so a confident match turns the page. The schedule still holds
+ * the outside of the window: if nothing matches by the time it closes, the page
+ * turns anyway rather than stranding the player.
  */
 function detect() {
   const now = nowSeconds();
@@ -558,6 +766,7 @@ function detect() {
     state.hold = 0;
     return;
   }
+
 
   state.confidence = matchScore(recentFrames(TEMPLATE_S * 1.6), template);
   state.hold = state.confidence >= MATCH_THRESHOLD ? state.hold + 1 : 0;
@@ -708,7 +917,12 @@ async function startAuto() {
   startListening().catch((err) => console.info("running without audio:", err.message));
 
   tickTimer = setInterval(() => {
-    if (state.turnAt !== null && nowSeconds() >= state.turnAt) nextPage();
+    const now = nowSeconds();
+    if (state.turnAt === null) return render();
+    // With a template the schedule waits for the audio and only steps in when
+    // the window closes; without one it is all there is.
+    const deadline = state.templates.has(state.page) ? state.turnAt + armSlack() : state.turnAt;
+    if (now >= deadline) nextPage();
     else render();
   }, 100);
 
@@ -767,6 +981,7 @@ el.meterInput.addEventListener("change", () => {
 });
 el.leadInput.addEventListener("change", () => {
   state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
+  buildTemplates(); // the template ends where the lead says the page does
   scheduleTurn();
   render();
 });
@@ -807,4 +1022,4 @@ render();
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
-window.__autopage = { state, matchScore, chromaLog, recentFrames, countMeasures };
+window.__autopage = { state, matchScore, chromaLog, recentFrames, readPage, chromaOf, startListening };

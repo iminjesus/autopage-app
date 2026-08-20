@@ -17,7 +17,8 @@ console.log("MEASURES:", JSON.stringify(await page.evaluate(() =>
   [...window.__autopage.state.measures.entries()])));
 console.log("STATUS  :", await page.textContent("#setupStatus"));
 
-await page.fill("#bpmInput", "120"); await page.dispatchEvent("#bpmInput", "change");
+const BPM = process.argv[2] || "120";
+await page.fill("#bpmInput", BPM); await page.dispatchEvent("#bpmInput", "change");
 await page.fill("#meterInput", "3"); await page.dispatchEvent("#meterInput", "change");
 await page.fill("#leadInput", "1");  await page.dispatchEvent("#leadInput", "change");
 
@@ -35,7 +36,7 @@ await new Promise((r) => setTimeout(r, 40000));
 clearInterval(poll);
 
 console.log("TURNS   :", JSON.stringify(turns));
-console.log("EXPECTED: 8 bars/page at 3/4 120bpm = 12.0s per page, 1 bar (1.5s) early");
-console.log("          -> 10.5, 22.5, 34.5");
+console.log(`BPM used : ${BPM} (true tempo is 120; music boundaries at 12/24/36s)`);
+
 console.log("ERRORS  :", errors.length ? errors : "none");
 await browser.close();
