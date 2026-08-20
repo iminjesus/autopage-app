@@ -3,10 +3,18 @@
 Why the obvious approaches were not taken. Each of these was considered and
 rejected for a specific reason, not overlooked.
 
-## Not optical music recognition
+## Reading the PDF, but not optical music recognition
 
-The intuitive design is: convert the PDF to a symbolic score, then follow the
-performance against it. OMR (Audiveris, oemer) can do the conversion, but:
+These are not the same thing, and conflating them cost this project a design
+iteration. OMR exists because a *scanned* score is pixels: the structure was
+thrown away and has to be inferred back. A PDF exported from notation software
+never lost it — staff lines, barlines and glyphs are still discrete drawing
+operations with coordinates. Reading those is parsing, and it is exact.
+
+Counting measures per page needs about eighty lines and no model. That is what
+the app does, and it is why there is no setup step.
+
+Full OMR remains rejected for scanned scores:
 
 - Accuracy varies with engraving quality, and handwritten scores are poor.
 - Errors need a correction UI, which is where most of the effort in such a
@@ -16,10 +24,10 @@ performance against it. OMR (Audiveris, oemer) can do the conversion, but:
 - An OMR error is not a one-time setup annoyance. A misrecognized measure
   becomes a spot that misaligns **every single time** that passage is played.
 
-The rehearsal-template approach removes all of this. If the app ever needs to
-work on a score sight-unseen, with no rehearsal pass, OMR comes back onto the
-table — but only for the last few measures of each page, which would cut the
-correction burden by an order of magnitude.
+A scanned score therefore gets manual turning, and says so. Extending the
+vector reader from barlines to noteheads is the path to knowing what each page
+*sounds* like — which would let the audio matcher work on a score it has never
+heard, with no run-through at all.
 
 ## Not general score following
 
@@ -63,6 +71,16 @@ act at a musically inconvenient moment.
 
 It stays always-live, bidirectional, and doubles as a resync — so the automatic
 path can afford to be conservative.
+
+## Not a rehearsal pass
+
+The first working version asked the player to run the score once and tap at each
+page end, which gave the matcher its templates. It worked, and it was wrong: a
+per-score setup ritual is a pedal with extra steps, and the whole point was to
+remove the pedal.
+
+Reading the measures out of the PDF replaced it. The template capture survives,
+but it now happens silently on every turn instead of being something to do.
 
 ## Not a Bluetooth pedal
 

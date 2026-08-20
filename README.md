@@ -7,54 +7,39 @@ while you play and turns the page when you reach the end of the current one.
 A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
-**Status: automatic turning works.** Rehearse once, then Perform and the pages
-turn themselves. Verified end to end in headless Chromium against a synthetic
-recording — all three turns fired, 1.3–1.6s before the tapped point. The face
-gesture complement is still stubbed, and templates live in memory rather than
-IndexedDB, so they are lost on reload. See
+**Status: automatic turning works, with no setup.** Open a score, give it the
+tempo, press Start. The face gesture complement is still stubbed. See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.
 
 ## The core idea
 
-The naive framing — "recognize the score and follow the performance" — is a
-months-long project (optical music recognition, then real-time audio-to-score
-alignment). This app deliberately does not do that.
+An engraved PDF is not a picture of a score. It is the instructions that drew
+one — and those instructions are readable. Staff lines are long horizontal
+strokes; barlines are vertical strokes exactly one staff tall. So the app opens
+the file and **counts the measures on each page**, without recognising an image
+and without being told anything.
 
-For page turning you do not need to know *where* the player is at every moment.
-You need one binary decision per page: **has the player reached the last
-measure yet?** That reduction is what makes the project tractable.
+Measures plus tempo give the length of every page, and that is enough to turn
+on time. The estimate re-anchors at each turn, so error cannot accumulate from
+one page to the next.
 
-Two cheap signals combine to answer it:
+This is not optical music recognition. OMR exists because *scanned* scores are
+pixels with no structure left. A PDF exported from LilyPond, MuseScore, Sibelius
+or Finale still carries its geometry, and reading it is parsing, not inference.
 
-- **Coarse timing arms the detector.** Tempo and time signature give a rough
-  estimate of when the last measure arrives. It only has to be right within a
-  few seconds, and the estimate resets on every page turn, so error never
-  accumulates.
-- **Audio confirms the moment.** Inside that window — and only inside it — a
-  short template matcher listens for the last measures of the page.
-
-Coarse timing alone drifts. The matcher alone would fire on false positives
-across the whole page. Together each covers the other's weakness.
-
-## Where the templates come from
-
-You rehearse before you perform. The app uses that.
-
-On a rehearsal pass you tap at each point where you want the page to turn. The
-app stores the chroma features of the few seconds leading up to each tap. In
-performance it matches against those templates.
-
-This means **no optical music recognition anywhere in the pipeline.** The PDF
-is only ever drawn to the screen — the app never needs to know where the
-measures are, what the notes are, or how the score is structured.
+Listening is a refinement on top, not the foundation. Each turn quietly records
+how the end of that page sounded, so a second run through the same score can be
+corrected by the music rather than the clock. Nobody is asked to rehearse.
 
 ## Design constraints
 
 - **A missed turn is much better than a wrong turn.** Missing one costs a
   gesture; turning mid-phrase breaks the performance. Detection thresholds are
   biased hard toward not turning.
+- **Nothing is required of the player before they start.** A setup step that
+  has to be done per score is a page-turner pedal with extra ceremony.
 - **The gesture complement is bidirectional and always live.** Back matters more
   than forward — it is the recovery path when the app turns early. A gesture
   also resyncs the timing estimate, so correcting once puts automation back on
@@ -79,9 +64,9 @@ rather than transcribed from it, and deliberately non-repetitive: an eight-bar
 phrase played four times would make every page end sound identical, which is
 the one thing the matcher cannot resolve.
 
-1. Open the PDF.
-2. **Rehearse** — play, and tap **Mark turn** at each page end.
-3. **Perform** — play again; the pages turn themselves.
+1. Open the PDF — it reports the measures it found on each page.
+2. Set the tempo, by typing it or tapping it.
+3. Press **Start** and play.
 
 ## Running it
 

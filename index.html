@@ -55,20 +55,31 @@
 
       <div class="panel-body">
         <p class="panel-desc">
-          Rehearse once: play through and tap <b>Mark turn</b> exactly where each
-          page should flip. AutoPage remembers how those moments sound, and how
-          long each page ran, then turns for you in <b>Perform</b>.
+          AutoPage counts the measures on each page by reading the PDF's own
+          drawing commands — no setup. Give it the tempo and it turns for you.
         </p>
 
         <div class="row">
-          <button id="rehearseBtn" class="btn btn-secondary">Rehearse</button>
-          <button id="markBtn" class="btn btn-primary" disabled>Mark turn</button>
+          <label class="field">
+            <span>Tempo</span>
+            <input type="number" id="bpmInput" min="30" max="240" value="120" />
+          </label>
+          <button id="tapBtn" class="btn btn-secondary">Tap</button>
         </div>
 
-        <button id="performBtn" class="btn btn-primary btn-block" disabled>Perform</button>
+        <label class="field">
+          <span>Beats per bar</span>
+          <input type="number" id="meterInput" min="1" max="12" value="3" />
+        </label>
 
-        <!-- Live match confidence. Visible because the whole design rests on
-             this number staying near zero except at a real page end. -->
+        <label class="field">
+          <span>Turn this many bars early</span>
+          <input type="number" id="leadInput" min="0" max="4" step="0.5" value="1" />
+        </label>
+
+        <button id="startBtn" class="btn btn-primary btn-block" disabled>Start</button>
+
+        <!-- Live match confidence, shown once a page has been heard before. -->
         <div class="meter" id="meter" hidden>
           <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
           <span class="meter-value" id="meterValue">0.00</span>

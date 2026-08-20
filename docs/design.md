@@ -31,67 +31,74 @@ not a continuous position estimate. See `decisions.md`.
 
 ## Architecture
 
-One flat, dependency-free static site, same as its sibling project `metronome-app`:
-`index.html` + `style.css` + `app.js`, no build step. The names below are
-sections of `app.js`, not separate modules.
+One flat, dependency-free static site, same as its sibling project
+`metronome-app`: `index.html` + `style.css` + `app.js`, no build step. The names
+below are sections of `app.js`, not separate modules.
 
 ```
- PDF ──▶ score-view ──────────────────────────────┐
-                                                  ▼
- mic ──▶ audio-input ──▶ chroma ──▶ matcher ──▶ controller ──▶ turn
-                                       ▲            ▲
-                          templates ───┘            │
-                          (store)                   │
+ PDF ──▶ score reader ──▶ measures/page ──┐
+     └─▶ score view                       ▼
+                                     schedule ──▶ turn
+                                          ▲         ▲
+ mic ──▶ chroma ──▶ matcher ──────────────┘         │
+                      ▲                             │
+          templates ──┘ (captured on each turn)     │
                                                     │
- tempo/meter ─────────▶ arming ─────────────────────┤
-                        (window)                    │
-                                                    │
- camera ─────────────▶ gesture ─────────────────────┘
-                        (fwd / back / resync)
+ camera ─────────▶ gesture ─────────────────────────┘
+                   (fwd / back / resync)
 ```
 
-### arming — coarse timing
+### score reader — measures per page
 
-The rehearsal pass measures how long each page actually ran. That measurement
-is the estimate — better than deriving one from tempo and time signature,
-because it already contains the player's pacing, any repeats, and the fact that
-a last system is usually taken broadly. Open a detection window around it,
-±3.5 seconds or ±15% of the page's length, whichever is wider, so a performance
-taken off the rehearsal tempo still opens the window over the right music.
+Walk the page's operator list, tracking the transform stack, and collect every
+straight segment. Then:
 
-The estimate is deliberately weak. It does not need to be accurate, only
-approximately right, because its job is to gate the matcher rather than to
-trigger the turn. Two properties keep it good enough:
+- **Staff lines** are horizontal segments longer than a third of the page. Sort
+  their y positions and take runs of five with even spacing; each run is a
+  staff, and four times the spacing is the staff height.
+- **Systems** are staves joined by a vertical stroke that bridges the gap
+  between them. Guessing from the size of the gap does not work — it varies with
+  whatever is engraved in it — but a barline that physically crosses the gap is
+  unambiguous. Without this, a piano score counts every barline twice.
+- **Barlines** are vertical strokes at least 0.9 staff tall, inside a system's
+  band. Shorter ones are stems. Strokes within 0.15 staff of each other merge,
+  so a repeat sign counts once, and anything sitting on the left edge of the
+  staff lines is the rule that opens the system, which closes no measure.
 
-- Performance tempo is stable, so drift over one page (30–60s) stays within a
-  few seconds.
-- The estimate **resets at every page turn**, so error does not accumulate
-  across the piece. Each page is an independent estimation problem.
+Scanned scores have none of this geometry. They report no staves and fall back
+to manual turning rather than guessing.
 
-Nothing here comes from analysing the PDF.
+### schedule — when the page runs out
 
-### matcher — audio confirmation
+Measures times beats-per-bar times seconds-per-beat is the page's length. The
+anchor resets at every turn, automatic or manual, so error cannot accumulate
+across pages.
 
-Inside the armed window only, match incoming chroma against the stored template
-for this page using subsequence DTW. DTW is tempo-tolerant, so a performance
-taken slower or faster than the rehearsal still matches.
+The lead is subtracted **once**. After turning a bar early the anchor already
+sits a bar before the new page's first bar, so each later page is exactly its
+own length; subtracting the lead again would put the app another bar behind the
+music on every page.
+
+### matcher — audio refinement
+
+Each turn records the last four seconds of chroma for the page it left. Nobody
+is asked to do this, and the first run through a score does not use it. On a
+later run, if a template exists and the schedule says the end is near, a
+subsequence DTW match can bring the turn forward to where the music actually is.
+
+The matcher can only make a due turn earlier. It never invents one, so a
+false positive costs at most a slightly early page.
 
 Two details matter more than they look:
 
-- **Templates span 2–3 measures, not one.** A single measure of, say, repeated
-  tonic chords is not distinctive enough to locate against its neighbours.
-  Longer context buys discriminative power.
-- **The threshold is high, and the match must hold for several consecutive
-  frames.** A page turn is an expensive mistake and a cheap omission.
-- **Alignment cost is divided by path length, not template length.** Dividing
-  by template length makes a compressed alignment cheap, and the detector fires
-  early as a result.
+- **Templates span several seconds, not one measure.** A single measure of
+  repeated tonic chords is not distinctive enough to locate against neighbours.
+- **Alignment cost is divided by path length, not template length.** Dividing by
+  template length makes a compressed alignment cheap, and it fires early.
 
-Measured on a synthetic best case (the rehearsal and the performance are the
-same recording), turns land 1.3–1.6s before the tapped point. The residual bias
-is not a bug to chase: chroma cannot resolve time inside a held chord, and the
-fixture ends each page on a dotted half. Precision is bounded by harmonic
-rhythm, and for page turning, early is the safe direction anyway.
+Precision is bounded by harmonic rhythm: chroma cannot resolve time inside a
+held chord, so a page ending on a dotted half is locatable to about a second.
+For a page turn, early is the safe direction anyway.
 
 ### gesture — the complement
 
@@ -121,20 +128,25 @@ next open.
 
 | Situation | Behaviour |
 |---|---|
-| Matcher misses | No turn. Player uses the forward gesture. Timing resyncs. |
-| Matcher fires early | Player uses the back gesture. Timing resyncs. |
-| Confidence low | Auto-turn disables itself; UI shows manual mode. |
-| No rehearsal data for this score | Manual only, with an offer to rehearse. |
-| Reached the last page | Detector stops arming; nothing left to turn to. |
+| Scanned score, no staves found | Manual turning, stated plainly. |
+| Tempo set wrong | Turns drift; the player corrects with a gesture and the schedule re-anchors. |
+| Matcher misses | The schedule still turns the page. |
+| Matcher fires early | Player uses the back gesture. Timing re-anchors. |
+| Reached the last page | Schedule stops; nothing left to turn to. |
 
 Silent degradation to manual is always preferred over a confident wrong turn.
 
 ## Open questions
 
-- False positive rate of the matcher on *real* recordings. The synthetic case
-  passes, but rehearsal and performance being the same audio is the easiest
-  possible test — it says nothing about a live performance matched against a
-  rehearsal taken at a different tempo, dynamic, or room.
+- Whether the measure reader survives real scores. It is verified on LilyPond
+  output only. MuseScore, Sibelius and Finale each engrave differently, and
+  pickup bars, multi-bar rests, repeats and cadenzas all break the assumption
+  that a barline count equals a measure count.
+- Reading noteheads, not just barlines. Glyph positions relative to the staff
+  lines give pitches, and pitches give an expected chroma sequence per page.
+  That would let the matcher work on a score it has never heard — real score
+  following, with the reference coming from the PDF instead of a run-through.
+- Detecting tempo from the audio so even that one number is not asked for.
 - Whether a repetitive piece defeats the matcher. The fixture was deliberately
   written non-repetitive; an eight-bar phrase played four times would make
   every page end sound alike, and only the arming window would separate them.

@@ -43,20 +43,26 @@ const state = {
   doc: null,
   page: 1,
   pageCount: 0,
-  mode: "manual", // "manual" | "rehearsing" | "auto"
+  mode: "manual", // "manual" | "auto"
   armed: false,
   confidence: 0,
   hold: 0,
   pageStartedAt: 0, // seconds; when the current page began
-  templates: new Map(), // page -> chroma frames captured before the tap
-  pageDurations: new Map(), // page -> seconds that page ran during rehearsal
+  bpm: 120,
+  beatsPerBar: 3,
+  leadBars: 1,
+  measures: new Map(), // page -> measures counted from the PDF's own drawing ops
+  templates: new Map(), // page -> chroma heard just before a previous turn
+  turnAt: null, // seconds; when the schedule says this page ends
+  anchorIsEarly: false, // the anchor sits `leadBars` before the page's first bar
 };
 
 const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
-  "setupPanel", "setupToggle", "rehearseBtn", "markBtn", "performBtn",
+  "setupPanel", "setupToggle", "startBtn", "tapBtn",
+  "bpmInput", "meterInput", "leadInput",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -156,7 +162,7 @@ async function openScore(file) {
   state.pageCount = doc.numPages;
   state.page = 1;
   state.templates.clear();
-  state.pageDurations.clear();
+  state.measures.clear();
   pageCache.clear();
   pending.clear();
   resyncTiming();
@@ -170,39 +176,217 @@ async function openScore(file) {
 
   await showPage(1);
   render();
+
+  for (let n = 1; n <= doc.numPages; n++) {
+    state.measures.set(n, await countMeasures(doc, n));
+  }
+  const counts = [...state.measures.values()];
+  if (counts.every((c) => c === null)) {
+    setStatus("No staves found — a scanned score can only be turned by hand.");
+  } else {
+    setStatus(`Measures per page: ${counts.map((c) => c ?? "?").join(", ")}. Set the tempo and press Start.`);
+  }
+  resyncTiming();
+  render();
 }
 
 // ============================================================
-// Arming — coarse timing
+// Reading the score — from the PDF's drawing commands, not its pixels
 //
-// Rehearsal measures how long each page actually ran, which beats deriving it
-// from tempo and time signature: the measurement already contains the player's
-// pacing, repeats, and the fact that the last system is usually taken broadly.
+// An engraved PDF is not a picture of a score, it is the instructions that drew
+// one: staff lines are long horizontal strokes, barlines are vertical strokes
+// exactly one staff tall. Counting measures is therefore a matter of reading
+// the file, not recognising an image — no OMR, and nothing the player has to
+// tell us. Scanned scores have none of this and fall back to manual.
 // ============================================================
 
-/** Seconds from the start of the current page until its turn point. */
-function estimateTurnDelay() {
-  const d = state.pageDurations.get(state.page);
-  return d === undefined ? null : d;
+/** Multiply two PDF matrices, `outer` applied after `inner`. */
+function matMul(outer, inner) {
+  return [
+    outer[0] * inner[0] + outer[2] * inner[1],
+    outer[1] * inner[0] + outer[3] * inner[1],
+    outer[0] * inner[2] + outer[2] * inner[3],
+    outer[1] * inner[2] + outer[3] * inner[3],
+    outer[0] * inner[4] + outer[2] * inner[5] + outer[4],
+    outer[1] * inner[4] + outer[3] * inner[5] + outer[5],
+  ];
 }
 
-/** True while the detector should be listening. */
-function isArmed(now) {
-  const delay = estimateTurnDelay();
-  if (delay === null) return false;
-  // Proportional slack so a performance taken off the rehearsal tempo still
-  // opens the window over the right stretch of music.
-  const slack = Math.max(ARM_WINDOW_S, delay * ARM_WINDOW_FRACTION);
-  return Math.abs(now - state.pageStartedAt - delay) <= slack;
+/** Straight segments from a page's operator list, in page space. */
+function extractSegments(ops) {
+  const segs = [];
+  const stack = [];
+  let m = [1, 0, 0, 1, 0, 0];
+  const at = (x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i];
+    if (fn === pdfjsLib.OPS.save) stack.push(m.slice());
+    else if (fn === pdfjsLib.OPS.restore) m = stack.pop() || [1, 0, 0, 1, 0, 0];
+    else if (fn === pdfjsLib.OPS.transform) m = matMul(m, ops.argsArray[i]);
+    else if (fn === pdfjsLib.OPS.constructPath) {
+      const [fns, args] = ops.argsArray[i];
+      let a = 0;
+      let cur = null;
+      for (const op of fns) {
+        if (op === pdfjsLib.OPS.rectangle) {
+          // Some engravers draw barlines and staff lines as filled rectangles.
+          const [x, y, w, h] = args.slice(a, a + 4);
+          a += 4;
+          segs.push(w > h ? [...at(x, y + h / 2), ...at(x + w, y + h / 2)]
+                          : [...at(x + w / 2, y), ...at(x + w / 2, y + h)]);
+        } else if (op === pdfjsLib.OPS.moveTo) {
+          cur = at(args[a], args[a + 1]);
+          a += 2;
+        } else if (op === pdfjsLib.OPS.lineTo) {
+          const next = at(args[a], args[a + 1]);
+          a += 2;
+          if (cur) segs.push([...cur, ...next]);
+          cur = next;
+        } else if (op === pdfjsLib.OPS.curveTo) {
+          cur = at(args[a + 4], args[a + 5]);
+          a += 6;
+        } else if (op === pdfjsLib.OPS.closePath) {
+          cur = null;
+        }
+      }
+    }
+  }
+  return segs;
+}
+
+/** Group sorted staff-line positions into staves of five evenly spaced lines. */
+function findStaves(ys) {
+  const staves = [];
+  for (let i = 0; i + 4 < ys.length; ) {
+    const gaps = [];
+    for (let k = 0; k < 4; k++) gaps.push(ys[i + k + 1] - ys[i + k]);
+    const mean = gaps.reduce((a, b) => a + b, 0) / 4;
+    if (mean > 0 && gaps.every((g) => Math.abs(g - mean) < mean * 0.2)) {
+      staves.push({ top: ys[i], bottom: ys[i + 4], spacing: mean });
+      i += 5;
+    } else {
+      i += 1;
+    }
+  }
+  return staves;
 }
 
 /**
- * Re-anchor the estimate to a known position. Called on every turn — automatic
- * or manual — which is what keeps drift from accumulating across pages.
+ * Measures drawn on one page.
+ * @returns {number|null} null when the page has no readable staves at all.
+ */
+async function countMeasures(doc, n) {
+  const page = await doc.getPage(n);
+  const segs = extractSegments(await page.getOperatorList());
+  page.cleanup();
+  if (!segs.length) return null;
+
+  const xs = segs.flatMap((s) => [s[0], s[2]]);
+  const width = Math.max(...xs) - Math.min(...xs);
+
+  const horizontal = segs.filter(
+    (s) => Math.abs(s[3] - s[1]) < 1 && Math.abs(s[2] - s[0]) > width * 0.3
+  );
+  const ys = [...new Set(horizontal.map((s) => Math.round(s[1] * 10) / 10))].sort((a, b) => a - b);
+  const staves = findStaves(ys);
+  if (!staves.length) return null;
+
+  const staffHeight = staves[0].bottom - staves[0].top;
+  const verticals = segs.filter((s) => Math.abs(s[2] - s[0]) < 1);
+
+  // Staves of one system share their barlines, so counting per staff counts
+  // every barline twice on a piano score. Two staves belong to the same system
+  // when a barline actually bridges the gap between them — a geometric guess at
+  // the spacing gets this wrong, because the gap varies with what is engraved
+  // in it.
+  const systems = [{ top: staves[0].top, bottom: staves[0].bottom }];
+  for (let i = 1; i < staves.length; i++) {
+    const gapTop = staves[i - 1].bottom;
+    const gapBottom = staves[i].top;
+    const bridged = verticals.some((s) => {
+      const lo = Math.min(s[1], s[3]);
+      const hi = Math.max(s[1], s[3]);
+      return lo <= gapTop + staffHeight * 0.1 && hi >= gapBottom - staffHeight * 0.1;
+    });
+    if (bridged) systems[systems.length - 1].bottom = staves[i].bottom;
+    else systems.push({ top: staves[i].top, bottom: staves[i].bottom });
+  }
+
+  let total = 0;
+  for (const sys of systems) {
+    // A system opens with a vertical rule joining its staves. It looks exactly
+    // like a barline but closes no measure, so drop anything sitting on the
+    // left edge of the staff lines.
+    const leftEdge = Math.min(
+      ...horizontal
+        .filter((h) => h[1] >= sys.top - 1 && h[1] <= sys.bottom + 1)
+        .map((h) => Math.min(h[0], h[2]))
+    );
+    const bars = verticals.filter((s) => {
+      const lo = Math.min(s[1], s[3]);
+      const hi = Math.max(s[1], s[3]);
+      // Exactly one staff tall: shorter is a stem, and anything outside the
+      // system belongs to a neighbour.
+      return hi - lo > staffHeight * 0.9 && lo >= sys.top - 1 && hi <= sys.bottom + 1;
+    });
+
+    // A repeat sign is two strokes a hair apart but only one measure boundary.
+    const merged = [];
+    for (const x of bars.map((s) => s[0]).sort((a, b) => a - b)) {
+      if (x < leftEdge + staffHeight * 0.1) continue;
+      if (!merged.length || x - merged[merged.length - 1] > staffHeight * 0.15) merged.push(x);
+    }
+    total += merged.length;
+  }
+  return total || null;
+}
+
+// ============================================================
+// Scheduling — when this page runs out
+// ============================================================
+
+const secondsPerBar = () => (60 / state.bpm) * state.beatsPerBar;
+
+/**
+ * Set the moment this page is due to end, or null if it cannot be known.
+ *
+ * The lead is only subtracted once. After an early turn the anchor already sits
+ * `leadBars` before the page's first bar, so every later page is exactly its
+ * own length — subtracting again would put the app a bar further behind the
+ * music on every page.
+ */
+function scheduleTurn() {
+  const bars = state.measures.get(state.page);
+  if (!bars || state.page >= state.pageCount) {
+    state.turnAt = null;
+    return;
+  }
+  const lead = state.anchorIsEarly ? 0 : state.leadBars;
+  state.turnAt = state.pageStartedAt + (bars - lead) * secondsPerBar();
+}
+
+/** Bars left on this page, for the countdown. */
+function barsRemaining(now) {
+  if (state.turnAt === null) return null;
+  return Math.max(0, (state.turnAt - now) / secondsPerBar());
+}
+
+/** True while the audio detector should be listening. */
+function isArmed(now) {
+  if (state.turnAt === null) return false;
+  const slack = Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
+  return Math.abs(now - state.turnAt) <= slack;
+}
+
+/**
+ * Re-anchor to a known position. Called on every turn — automatic or manual —
+ * which is what keeps timing error from accumulating across pages.
  */
 function resyncTiming() {
   state.pageStartedAt = nowSeconds();
   state.hold = 0;
+  scheduleTurn();
 }
 
 // ============================================================
@@ -359,30 +543,36 @@ function matchScore(live, template) {
   return Math.max(0, 1 - prev[n - 1] / prevLen[n - 1]);
 }
 
+/**
+ * Runs on every chroma frame. The schedule decides when the page ends; the
+ * matcher can only bring that moment forward, and only if this page has been
+ * heard before. Audio never invents a turn on its own.
+ */
 function detect() {
   const now = nowSeconds();
   state.armed = isArmed(now);
 
-  if (!state.armed || state.page >= state.pageCount) {
+  const template = state.templates.get(state.page);
+  if (!state.armed || !template) {
     state.confidence = 0;
     state.hold = 0;
-    render();
     return;
   }
 
-  const template = state.templates.get(state.page);
-  if (!template) return fallBackToManual(`no template for page ${state.page}`);
-
-  const live = recentFrames(TEMPLATE_S * 1.6);
-  state.confidence = matchScore(live, template);
+  state.confidence = matchScore(recentFrames(TEMPLATE_S * 1.6), template);
   state.hold = state.confidence >= MATCH_THRESHOLD ? state.hold + 1 : 0;
+  if (state.hold >= MATCH_HOLD_FRAMES) nextPage();
+}
 
-  if (state.hold >= MATCH_HOLD_FRAMES) {
-    state.hold = 0;
-    nextPage();
-    return;
-  }
-  render();
+/**
+ * Remember how the end of this page sounded. Nobody is asked to do this — it
+ * happens on every turn, so a second run through the same score is guided by
+ * the music itself rather than by the clock alone.
+ */
+function captureTemplate() {
+  if (!analyser) return;
+  const frames = recentFrames(TEMPLATE_S);
+  if (frames.length >= 8) state.templates.set(state.page, frames);
 }
 
 // ============================================================
@@ -421,9 +611,13 @@ function turnTo(n) {
   if (!state.pageCount) return;
   const next = Math.min(Math.max(n, 1), state.pageCount);
   if (next === state.page) return;
+  if (next === state.page + 1) {
+    captureTemplate(); // only forward turns mark a page ending
+    state.anchorIsEarly = true;
+  }
   state.page = next;
   showPage(next);
-  resyncTiming(); // every turn re-anchors the estimate, however it was triggered
+  resyncTiming(); // every turn re-anchors the schedule, however it was triggered
   render();
 }
 
@@ -453,86 +647,84 @@ function showError(message) {
 
 function render() {
   el.hudPage.textContent = state.pageCount ? `${state.page} / ${state.pageCount}` : "— / —";
-  el.hudMode.textContent =
-    state.mode === "auto" ? "Auto" : state.mode === "rehearsing" ? "Rehearsing" : "Manual";
-  el.hudArmed.hidden = !state.armed;
+  el.hudMode.textContent = state.mode === "auto" ? "Auto" : "Manual";
   el.prevBtn.disabled = state.page <= 1;
   el.nextBtn.disabled = state.page >= state.pageCount;
 
-  el.meter.hidden = state.mode !== "auto";
+  const bars = state.mode === "auto" ? barsRemaining(nowSeconds()) : null;
+  el.hudArmed.hidden = bars === null;
+  if (bars !== null) {
+    el.hudArmed.textContent =
+      bars < 1 ? "turning…" : `${Math.ceil(bars)} bar${Math.ceil(bars) === 1 ? "" : "s"} left`;
+  }
+
+  el.meter.hidden = !(state.mode === "auto" && state.templates.has(state.page));
   el.meterFill.style.width = `${Math.round(state.confidence * 100)}%`;
   el.meterFill.classList.toggle("over", state.confidence >= MATCH_THRESHOLD);
   el.meterValue.textContent = state.confidence.toFixed(2);
 
-  el.markBtn.disabled = state.mode !== "rehearsing";
-  el.performBtn.disabled = state.templates.size === 0 || state.mode === "rehearsing";
-  el.rehearseBtn.textContent = state.mode === "rehearsing" ? "Cancel" : "Rehearse";
+  el.startBtn.textContent = state.mode === "auto" ? "Stop" : "Start";
+  el.startBtn.disabled = !state.doc || !state.measures.get(1);
 }
 
 // ============================================================
-// Rehearsal
-//
-// The tap defines the turn point, which is why there is no "turn N measures
-// early" setting: the player taps where they want the page to flip, and the
-// template is the music leading up to that instant.
+// Transport
 // ============================================================
 
-async function startRehearsal() {
-  if (state.mode === "rehearsing") {
-    state.mode = "manual";
-    render();
-    setStatus("Rehearsal cancelled.");
-    return;
-  }
-  try {
-    await startListening();
-  } catch (err) {
-    showError(`Microphone unavailable — ${err.message}`);
-    return;
-  }
-  state.mode = "rehearsing";
-  state.templates.clear();
-  state.pageDurations.clear();
-  turnTo(1);
-  resyncTiming();
-  render();
-  setStatus(`Playing page 1 of ${state.pageCount} — tap Mark turn at the page end.`);
+const taps = [];
+
+/** Tap tempo — the median interval, so one stray tap does not move it. */
+function tapTempo() {
+  const now = nowSeconds();
+  if (taps.length && now - taps[taps.length - 1] > 2.5) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 6) taps.shift();
+  if (taps.length < 2) return setStatus("Keep tapping…");
+
+  const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
+  const median = gaps[Math.floor(gaps.length / 2)];
+  setBpm(Math.round(60 / median));
+  setStatus(`Tempo ${state.bpm} BPM.`);
 }
 
-function markTurn() {
-  const template = recentFrames(TEMPLATE_S);
-  if (template.length < 8) {
-    setStatus("Not enough audio yet — let it play a few seconds first.");
-    return;
-  }
-
-  state.templates.set(state.page, template);
-  state.pageDurations.set(state.page, nowSeconds() - state.pageStartedAt);
-
-  // Templates are needed for pages 1..n-1 — the last page has no turn after it.
-  if (state.page >= state.pageCount - 1) {
-    state.mode = "manual";
-    render();
-    setStatus(`Rehearsed ${state.templates.size} turns. Press Perform to run it.`);
-    return;
-  }
-  nextPage();
+function setBpm(bpm) {
+  state.bpm = Math.min(240, Math.max(30, bpm));
+  el.bpmInput.value = String(state.bpm);
+  scheduleTurn();
   render();
-  setStatus(`Page ${state.page} of ${state.pageCount} — tap at the page end.`);
 }
 
-async function startPerform() {
-  try {
-    await startListening();
-  } catch (err) {
-    showError(`Microphone unavailable — ${err.message}`);
-    return;
-  }
+let tickTimer = null;
+
+async function startAuto() {
+  if (state.mode === "auto") return stopAuto();
+
   state.mode = "auto";
   turnTo(1);
+  state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
   resyncTiming();
+  // The microphone is optional: it only lets a second run through the score be
+  // guided by the music instead of the clock. Denying it costs nothing today.
+  startListening().catch((err) => console.info("running without audio:", err.message));
+
+  tickTimer = setInterval(() => {
+    if (state.turnAt !== null && nowSeconds() >= state.turnAt) nextPage();
+    else render();
+  }, 100);
+
   render();
-  setStatus("Listening. Start from the top.");
+  setStatus(`Turning on schedule at ${state.bpm} BPM. Start playing.`);
+}
+
+function stopAuto() {
+  state.mode = "manual";
+  state.turnAt = null;
+  state.armed = false;
+  clearInterval(tickTimer);
+  tickTimer = null;
+  stopListening();
+  render();
+  setStatus("Stopped.");
 }
 
 // ============================================================
@@ -547,7 +739,7 @@ function loadFile(file) {
     return;
   }
   openScore(file)
-    .then(() => setStatus("Press Rehearse, then tap at each page end."))
+    .then(() => collapseSetup(false))
     .catch((err) => {
       console.error("failed to open score:", err);
       showError(`Could not open ${file.name} — ${err.message}`);
@@ -564,9 +756,20 @@ el.score.addEventListener("drop", (e) => {
 
 el.nextBtn.addEventListener("click", nextPage);
 el.prevBtn.addEventListener("click", prevPage);
-el.rehearseBtn.addEventListener("click", startRehearsal);
-el.markBtn.addEventListener("click", markTurn);
-el.performBtn.addEventListener("click", startPerform);
+el.startBtn.addEventListener("click", startAuto);
+el.tapBtn.addEventListener("click", tapTempo);
+
+el.bpmInput.addEventListener("change", () => setBpm(Number(el.bpmInput.value) || 120));
+el.meterInput.addEventListener("change", () => {
+  state.beatsPerBar = Math.min(12, Math.max(1, Number(el.meterInput.value) || 4));
+  scheduleTurn();
+  render();
+});
+el.leadInput.addEventListener("change", () => {
+  state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
+  scheduleTurn();
+  render();
+});
 
 function collapseSetup(collapsed) {
   el.setupToggle.setAttribute("aria-expanded", String(!collapsed));
@@ -604,4 +807,4 @@ render();
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
-window.__autopage = { state, matchScore, chromaLog, recentFrames };
+window.__autopage = { state, matchScore, chromaLog, recentFrames, countMeasures };
