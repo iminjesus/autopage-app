@@ -909,6 +909,7 @@ async function startAuto() {
   if (state.mode === "auto") return stopAuto();
 
   state.mode = "auto";
+  collapseSetup(true); // it covers the score, and there is nothing left to set
   turnTo(1);
   state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
   resyncTiming();
@@ -932,6 +933,7 @@ async function startAuto() {
 
 function stopAuto() {
   state.mode = "manual";
+  collapseSetup(false);
   state.turnAt = null;
   state.armed = false;
   clearInterval(tickTimer);
