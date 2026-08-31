@@ -51,6 +51,10 @@ const cases = [
   ["looking down, lids low 2s",   { gapL: 0.0024, gapR: 0.0039, frames: 60 }, false],
   ["head shake 2s",               { gapL: open, gapR: open, frames: 60, yaw: 1.0, hz: 1 }, false],
   ["wink that only half shuts",   { gapL: open, gapR: 0.006, frames: 18 }, true],
+  // One eye reading worse than the other is what a lens rim or a side light
+  // does, and it is how "one direction works and the other never does" starts.
+  ["weak-reading eye winks 0.8s", { gapL: open, gapR: 0.007, frames: 24 }, true],
+  ["other eye winks 0.8s",        { gapL: 0.001, gapR: open, frames: 24 }, true],
 ];
 for (const [label, opts, want] of cases) {
   await p.evaluate(() => { window.__autopage.state.page = 2; });

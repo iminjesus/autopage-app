@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01f gap-gate-measured";
+const BUILD = "2026-09-01g per-direction-limits";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -587,6 +587,23 @@ function stopGesture() {
  * camera has no face, so nothing downstream of "is there a face" was ever
  * exercised before it shipped.
  */
+/**
+ * Thresholds, per direction.
+ *
+ * One number for both eyes assumes the two are equally readable, and they are
+ * not: a lens rim, a light on one side, or a face that simply winks harder one
+ * way leaves one direction below a shared threshold and dead, while the other
+ * works — which is exactly how it was reported. Each direction is measured on
+ * its own during calibration and judged on its own here.
+ */
+function limitsFor(direction) {
+  const side = direction > 0 ? "forward" : "back";
+  return {
+    threshold: calibration?.[side]?.threshold ?? asymThreshold(),
+    gate: calibration?.[side]?.gate ?? minAbsDiff(),
+  };
+}
+
 function minAbsDiff() {
   // Set from the wink that was actually measured, not from a constant. Whether
   // the winking eye reads as fully shut depends on the face, the camera and the
@@ -595,11 +612,11 @@ function minAbsDiff() {
   return calibration?.minAbsDiff ?? MIN_ABS_DIFF;
 }
 
-function winkDirection(signedAsym, absDiff, threshold = asymThreshold()) {
-  if (absDiff <= minAbsDiff()) return 0;
-  if (signedAsym > threshold) return 1;
-  if (signedAsym < -threshold) return -1;
-  return 0;
+function winkDirection(signedAsym, absDiff) {
+  const towards = signedAsym > 0 ? 1 : -1;
+  const { threshold, gate } = limitsFor(towards);
+  if (absDiff <= gate) return 0;
+  return Math.abs(signedAsym) > threshold ? towards : 0;
 }
 
 function blendshape(shapes, name) {
@@ -790,6 +807,8 @@ function processFrame(landmarks, shapes) {
   //
   // Movement still needs an answer. It will be a measured one this time.
   const shaking = yawSwing > MAX_YAW_SWING || !poseReliable;
+  const sign = (calibration?.forwardSign ?? 1) * (swapEyes ? -1 : 1);
+  const signed = asym * sign;
 
   recordFrame({
     t: nowSeconds() % 1000,
@@ -798,10 +817,10 @@ function processFrame(landmarks, shapes) {
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    `  gap ${absDiff.toFixed(3)}/${minAbsDiff().toFixed(3)}` +
+    `  gap ${absDiff.toFixed(3)}/${limitsFor(signed > 0 ? 1 : -1).gate.toFixed(3)}` +
     `  ${gestureHold}/${requiredVotes()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
-    `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
+    `/ ${limitsFor(signed > 0 ? 1 : -1).threshold.toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
     `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
 
@@ -812,8 +831,6 @@ function processFrame(landmarks, shapes) {
     return;
   }
 
-  const sign = (calibration?.forwardSign ?? 1) * (swapEyes ? -1 : 1);
-  const signed = asym * sign;
   const direction = winkDirection(signed, absDiff);
 
   recent.push(direction);
@@ -988,15 +1005,30 @@ function finishCalibration() {
     return;
   }
 
-  // Well under the gap this face actually produces, so an ordinary wink clears
-  // it with room while a pair of half-lowered lids does not.
+  // Each direction gets the limits its own wink earned. Taking the weaker of
+  // the two and applying it to both is what left one eye working and the other
+  // dead.
+  const limits = (level, gapPeak) => ({
+    threshold: thresholdFrom(noiseLevel, level),
+    gate: Math.max(0.006, Math.min(0.02, gapPeak * 0.4)),
+    level,
+    gapPeak,
+  });
+  const forward = limits(
+    forwardSign > 0 ? rightLevel : leftLevel,
+    forwardSign > 0 ? gapPeaks.right : gapPeaks.left
+  );
+  const back = limits(
+    forwardSign > 0 ? leftLevel : rightLevel,
+    forwardSign > 0 ? gapPeaks.left : gapPeaks.right
+  );
   const gapPeak = Math.min(gapPeaks.right, gapPeaks.left);
   const gate = Math.max(0.006, Math.min(0.02, gapPeak * 0.4));
 
   calibration = {
     scale: CALIBRATION_SCALE,
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
-    minAbsDiff: gate, gapPeak,
+    minAbsDiff: gate, gapPeak, forward, back,
     savedAt: new Date().toISOString().slice(0, 10),
   };
   staleCalibration = false;
@@ -1013,8 +1045,10 @@ function finishCalibration() {
         "the app will not pretend otherwise.";
 
   setCardMessage(
-    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)} · ` +
-      `gap ${gapPeak.toFixed(3)} → gate ${gate.toFixed(3)}\n${verdict}`
+    `forward: wink ${forward.level.toFixed(2)} gap ${forward.gapPeak.toFixed(3)} ` +
+      `→ ${forward.threshold.toFixed(2)}/${forward.gate.toFixed(3)}\n` +
+      `back:    wink ${back.level.toFixed(2)} gap ${back.gapPeak.toFixed(3)} ` +
+      `→ ${back.threshold.toFixed(2)}/${back.gate.toFixed(3)}\n${verdict}`
   );
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000); // then get off the score
