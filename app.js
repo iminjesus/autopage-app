@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31h baseline-subtracted";
+const BUILD = "2026-08-31i peak-hold";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -946,6 +946,21 @@ let prevPoints = null;
 let headMotion = 0;
 let headYaw = 0;
 let asymBaseline = 0;
+// A 30fps readout cannot be read by eye, so the peaks are held. Without this
+// there is no way to tell "the model never sees the eye close" apart from
+// "the threshold is wrong", and both have been guessed at for several rounds.
+const peaks = { l: 0, r: 0, net: 0, at: 0 };
+
+function notePeaks(left, right, net) {
+  const now = nowSeconds();
+  if (now - peaks.at > 3) {
+    peaks.l = peaks.r = peaks.net = 0;
+    peaks.at = now;
+  }
+  peaks.l = Math.max(peaks.l, left);
+  peaks.r = Math.max(peaks.r, right);
+  peaks.net = Math.max(peaks.net, Math.abs(net));
+}
 
 function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
@@ -1080,7 +1095,7 @@ function onGestureFrame() {
   // Mirrored: the viewer's right eye is the model's left.
   const asym = left - right;
 
-  if (calibrating) return sampleCalibration(asym, Math.min(left, right));
+  if (calibrating) return sampleCalibration(asym, Math.min(left, right), Math.max(left, right));
 
   // Whatever the head's angle is doing to the difference, it is doing it
   // slowly. Track that and subtract it; a wink is what is left over.
@@ -1094,12 +1109,12 @@ function onGestureFrame() {
   const openEye = Math.min(left, right);
   const eyesPlausible = openEye < (calibration?.openEyeMax ?? MAX_OPEN_EYE);
 
+  notePeaks(left, right, deviation);
   el.gestureAsym.textContent =
-    `L ${left.toFixed(2)}  R ${right.toFixed(2)}  base ${asymBaseline >= 0 ? "+" : ""}${asymBaseline.toFixed(2)}` +
-    `  net ${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)} / ${asymThreshold().toFixed(2)}` +
-    `  ${gestureHold}/${holdFrames()}f` +
-    (usable ? "" : "  HEAD AWAY") +
-    (calibration ? `  x${calibration.separation.toFixed(1)}` : "  uncalibrated");
+    `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  net ${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)}` +
+    `  ${gestureHold}/${holdFrames()}f${usable ? "" : "  HEAD AWAY"}\n` +
+    `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  net ${peaks.net.toFixed(2)} ` +
+    `/ ${asymThreshold().toFixed(2)}   (3s window)`;
 
   if (!usable || !eyesPlausible) {
     gestureHold = 0;
@@ -1160,6 +1175,7 @@ function startCalibration() {
   calibrating = {
     index: 0,
     samples: { noise: [], right: [], left: [] },
+    eyePeaks: { right: 0, left: 0 },
     openEyes: [],
     until: 0,
   };
@@ -1197,10 +1213,13 @@ function topMean(values, frac) {
   return top.reduce((a, b) => a + b, 0) / top.length;
 }
 
-function sampleCalibration(asym, openEye) {
+function sampleCalibration(asym, openEye, closedEye) {
   const phase = PHASES[calibrating.index];
   calibrating.samples[phase.key].push(asym);
-  if (phase.key !== "noise") calibrating.openEyes.push(openEye);
+  if (phase.key !== "noise") {
+    calibrating.openEyes.push(openEye);
+    calibrating.eyePeaks[phase.key] = Math.max(calibrating.eyePeaks[phase.key], closedEye);
+  }
   const remaining = Math.max(0, calibrating.until - nowSeconds());
   el.gestureAsym.textContent =
     `${phase.prompt}  ${remaining.toFixed(0)}s   (live diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)})`;
@@ -1215,6 +1234,7 @@ function sampleCalibration(asym, openEye) {
 function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
   const openEyes = calibrating.openEyes;
+  const eyePeaks = calibrating.eyePeaks;
   calibrating = null;
   el.camPreview.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
@@ -1250,6 +1270,17 @@ function finishCalibration() {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}
 
+  // If the eye never registers as closed, no threshold can help: the model is
+  // not seeing the gesture, and every knob downstream is beside the point.
+  const closedPeak = Math.max(eyePeaks.right, eyePeaks.left);
+  if (closedPeak < 0.5) {
+    el.gestureStatus.textContent =
+      `The eye never reads as closed — peak ${closedPeak.toFixed(2)}, expected above 0.8.\n` +
+      "The face model is not seeing the wink at all, so no threshold will help. " +
+      "Try more light on your face, or move closer to the camera, then calibrate again.";
+    return;
+  }
+
   const verdict =
     separation >= 2.5
       ? "Good separation — winks are clearly distinct from blinks."
@@ -1261,7 +1292,8 @@ function finishCalibration() {
   el.gestureStatus.textContent =
     `blink noise ${noiseLevel.toFixed(2)} · right wink ${rightLevel.toFixed(2)} · ` +
     `left wink ${leftLevel.toFixed(2)} · separation x${separation.toFixed(1)} · ` +
-    `threshold ${threshold.toFixed(2)} · other eye under ${openEyeMax.toFixed(2)}\n${verdict}`;
+    `threshold ${threshold.toFixed(2)} · other eye under ${openEyeMax.toFixed(2)} · ` +
+    `eye closed to ${closedPeak.toFixed(2)}\n${verdict}`;
 }
 
 // ============================================================
