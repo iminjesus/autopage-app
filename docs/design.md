@@ -240,9 +240,22 @@ the head sideways registered both eyes as 0.56 and 0.78 closed at once, which no
 wink can do, and that is the shape of a reference problem rather than an eye one.
 
 The ratio is `(gapR - gapL) / (gapR + gapL)`: zero when the eyes match however
-open they are, near ±1 when one shuts. Face size cancels out of it entirely, so
-it is not even measured. Both eyes shut is a blink, and the ratio of two numbers
-near zero is noise, so that case reports nothing rather than a number.
+open they are, near ±1 when one shuts. Face size cancels out of it entirely.
+
+**A ratio alone is not enough, because a ratio between two small numbers is
+noise.** Looking down at the keyboard lowers both lids, so both gaps shrink
+together and a difference that means nothing becomes a large ratio: gaps of
+0.008 and 0.013 read as 0.24, and 0.010 against 0.018 reads as 0.29, against a
+threshold that has to be low enough for a real wink. Glancing down and back was
+turning pages on exactly that. So the gap between the eyes must also be large
+outright — a wink has one eye shut and the other wide, which is 0.045 of a face
+height, while the look-down cases are all under 0.008. Both tests have to pass.
+
+**And the wink has to be deliberate.** The hold went the other way earlier, down
+to 70ms, when the complaint was that quick winks were missed. With false turns
+now the more expensive failure, the default is half a second: long enough that
+nothing incidental lasts that long, short enough not to interrupt playing. It
+remains a setting.
 
 ### calibration — the part that is not optional
 

@@ -21,7 +21,9 @@ page".
 
 ## What still turns pages
 
-- **Winking** — right eye forward, left eye back.
+- **Winking** — right eye forward, left eye back, held for half a second. The
+  hold is deliberate: anything shorter turns out to be indistinguishable from
+  glancing down at the keyboard and back.
 - **Arrow keys, PageUp/PageDown, space** — which is also what a Bluetooth
   page-turner pedal sends, so those work with no setup.
 - **Tapping** the outer sixth of either side of the score.

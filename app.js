@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01b score-only";
+const BUILD = "2026-09-01c deliberate-wink";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -350,8 +350,10 @@ async function readPage(doc, n) {
 // so a single glitched frame can never fire a turn.
 const GESTURE_FPS = 30;
 const GESTURE_COOLDOWN_S = 0.6;
-const HOLD_KEY = "autopage.winkHold";
-let gestureHoldMs = 70;
+// Bumped so the new default applies: a stored 70ms from when the goal was
+// catching quick winks would defeat the point of asking for a deliberate one.
+const HOLD_KEY = "autopage.winkHold2";
+let gestureHoldMs = 500;
 // Which eye means forward is worked out from the image, but that reasoning has
 // been wrong about enough conventions in this project to deserve an override
 // that takes one click rather than another round trip.
@@ -478,7 +480,7 @@ function showCalibrationState() {
 
 function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
-  if (stored >= 50 && stored <= 400) gestureHoldMs = stored;
+  if (stored >= 100 && stored <= 1500) gestureHoldMs = stored;
   el.holdInput.value = String(gestureHoldMs);
 
   swapEyes = localStorage.getItem(SWAP_KEY) === "1";
@@ -599,6 +601,12 @@ const EYE_B = [159, 145];
 const FACE_TOP = 10;
 const FACE_BOTTOM = 152;
 const BOTH_SHUT = 0.012; // both lid gaps this small: a blink, and no signal
+// A ratio between two small numbers is noise. Looking down lowers both lids, so
+// both gaps shrink together and a difference that means nothing becomes a large
+// ratio — glancing at the keyboard and back was turning pages on it. A wink has
+// one eye shut and the other wide, so the gap between them is large in absolute
+// terms too, and that is what is required here on top of the ratio.
+const MIN_ABS_DIFF = 0.02; // in face heights
 
 /** Lid gap and horizontal position for one eye, in the image plane. */
 function eyeOf(landmarks, points) {
@@ -643,12 +651,13 @@ function eyeSignal(landmarks) {
 
   const sum = left.gap + right.gap;
   // Both eyes shut is a blink, and the ratio of two numbers near zero is noise.
-  if (sum / height < BOTH_SHUT) return { asym: 0, openL: 0, openR: 0 };
+  if (sum / height < BOTH_SHUT) return { asym: 0, absDiff: 0, openL: 0, openR: 0 };
 
   // Positive when the right eye is the more closed one, which is the direction
   // the panel promises turns the page forward.
   return {
     asym: (left.gap - right.gap) / sum,
+    absDiff: Math.abs(left.gap - right.gap) / height,
     openL: left.gap / height,
     openR: right.gap / height,
   };
@@ -717,6 +726,7 @@ function gestureFrame() {
   const left = eyes ? eyes.openL : 0;
   const right = eyes ? eyes.openR : 0;
   const asym = eyes ? eyes.asym : 0;
+  const absDiff = eyes ? eyes.absDiff : 0;
 
   // Kept only to show alongside, so the two measures can be compared on a real
   // face instead of argued about.
@@ -743,6 +753,7 @@ function gestureFrame() {
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
+    `  gap ${absDiff.toFixed(3)}/${MIN_ABS_DIFF}` +
     `  ${gestureHold}/${holdFrames()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
@@ -758,7 +769,11 @@ function gestureFrame() {
 
   const sign = (calibration?.forwardSign ?? 1) * (swapEyes ? -1 : 1);
   const signed = asym * sign;
-  const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
+  // Both tests, every frame: the eyes must be far apart as a proportion *and*
+  // far apart outright.
+  const wide = absDiff > MIN_ABS_DIFF;
+  const direction =
+    !wide ? 0 : signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
 
   recent.push(direction);
   while (recent.length > holdFrames() + 1) recent.shift();
@@ -1103,7 +1118,7 @@ el.swapInput.addEventListener("change", () => {
 });
 
 el.holdInput.addEventListener("change", () => {
-  gestureHoldMs = Math.min(400, Math.max(50, Number(el.holdInput.value) || 70));
+  gestureHoldMs = Math.min(1500, Math.max(100, Number(el.holdInput.value) || 500));
   el.holdInput.value = String(gestureHoldMs);
   try {
     localStorage.setItem(HOLD_KEY, String(gestureHoldMs));
