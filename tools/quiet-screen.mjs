@@ -11,13 +11,19 @@ p.on("console", (m) => { if (m.type() === "error" && !m.text().includes("XNNPACK
 
 await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
 
-// The camera has to come up with nothing switched on and nothing pressed.
 await p.waitForFunction(() => window.__autopage.state, { timeout: 20000 });
-await p.waitForFunction(() => !document.getElementById("holdField").hidden, { timeout: 60000 });
-console.log("camera started unattended :", true);
+
+// Nothing heavy on the landing screen: the 13MB face model waits for a reason
+// to exist, and looking at the page is not one.
+console.log("camera before a score     :", await p.evaluate(() => window.__autopage.ready));
 
 await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-g.pdf");
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
+
+// And once there is a score, the camera has to come up with nothing switched on
+// and nothing pressed.
+await p.waitForFunction(() => !document.getElementById("holdField").hidden, { timeout: 90000 });
+console.log("camera started unattended :", true);
 await p.waitForTimeout(1500);
 
 const vis = (sel) => p.locator(sel).isVisible();

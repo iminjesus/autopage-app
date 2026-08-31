@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01p share-and-install";
+const BUILD = "2026-09-01q offline-first";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -52,6 +52,7 @@ for (const id of [
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "sampleBtn", "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
+  "offlineState", "offlineBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeInput", "gestureHelp", "setupStatus",
@@ -175,6 +176,10 @@ async function openScore(bytes, name, startPage = 1) {
   // A page turner whose screen has gone dark is not a page turner. This is the
   // moment it starts to matter, so this is where it is asked for.
   keepAwake();
+  // And this is the moment the gesture is about to be wanted. If the camera is
+  // not already running, starting it here is what pulls the model down — while
+  // there is still, presumably, a network.
+  if (!landmarker) beginWatching();
 
   await showPage(state.page);
   render();
@@ -1567,6 +1572,92 @@ async function loadFile(file) {
 }
 
 // ============================================================
+// Being ready without a network
+//
+// A rehearsal room with no signal is a normal place to open a score, so
+// "works offline" is a requirement here, not a nicety. Two things have to be
+// true for it: the shell has to be in the cache, which the service worker
+// precaches on install, and the face model has to be there too — and that one
+// is 13MB, fetched separately, and easy to end up without.
+//
+// It is also the reason the model is not fetched on the landing screen any
+// more. Someone opening the link to look at it should not pay 14MB before they
+// have seen anything. But deferring a download is only safe if something
+// guarantees it still happens before it is needed, so that guarantee is here,
+// along with a plain answer to "will this work when I get there".
+// ============================================================
+
+const MODEL_FILES = [
+  "./vendor/mediapipe/vision_bundle.js",
+  "./vendor/mediapipe/face_landmarker.task",
+  "./vendor/mediapipe/wasm/vision_wasm_internal.js",
+  "./vendor/mediapipe/wasm/vision_wasm_internal.wasm",
+];
+
+// The model's own cache, whose name is fixed. The shell cache is bumped on
+// every release; the model must survive that, so it does not live there.
+const MODEL_CACHE = "autopage-model";
+
+/** Is every piece of the gesture already on this device? */
+async function modelCached() {
+  if (!("caches" in window)) return false;
+  try {
+    const hits = await Promise.all(MODEL_FILES.map((f) => caches.match(new URL(f, location.href))));
+    return hits.every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
+let prefetching = false;
+
+/**
+ * Pull the model down and keep it. Safe to call repeatedly — the network is
+ * only touched for what is missing.
+ */
+async function prefetchModel(onProgress) {
+  if (prefetching || !("caches" in window)) return;
+  prefetching = true;
+  try {
+    const cache = await caches.open(MODEL_CACHE);
+    let done = 0;
+    for (const file of MODEL_FILES) {
+      const url = new URL(file, location.href);
+      if (!(await cache.match(url))) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${file}: ${res.status}`);
+        await cache.put(url, res.clone());
+      }
+      onProgress?.(++done, MODEL_FILES.length);
+    }
+  } catch (err) {
+    console.warn("offline prefetch incomplete:", err.message);
+  } finally {
+    prefetching = false;
+    showOfflineState();
+  }
+}
+
+async function showOfflineState() {
+  const ready = await modelCached();
+  el.offlineState.textContent = ready
+    ? "Ready offline — the score, the app and the face model are all on this device."
+    : "Not ready offline yet — the face model has not been downloaded. " +
+      "Open a score, or press the button above, while you still have a connection.";
+  el.offlineBtn.hidden = ready;
+}
+
+el.offlineBtn.addEventListener("click", async () => {
+  el.offlineBtn.disabled = true;
+  el.offlineBtn.textContent = "Downloading…";
+  await prefetchModel((done, total) => {
+    el.offlineBtn.textContent = `Downloading… ${done}/${total}`;
+  });
+  el.offlineBtn.disabled = false;
+  el.offlineBtn.textContent = "Save for offline (13 MB)";
+});
+
+// ============================================================
 // Getting in — the first sixty seconds
 //
 // Everything above assumes a score is already open. Nothing was, and the only
@@ -1751,6 +1842,7 @@ async function beginWatching() {
   try {
     await startGesture();
     showCalibrationState();
+    showOfflineState();
   } catch (err) {
     el.allowBtn.hidden = false;
     setCardMessage(
@@ -1837,8 +1929,15 @@ loadHold();
 showCalibrationState();
 collapseSetup(true); // nothing but the score, until someone asks for more
 render();
-beginWatching();
-restoreLastScore().then((restored) => {
+restoreLastScore().then(async (restored) => {
+  // The camera — and the 13MB behind it — waits for a reason to exist. A score
+  // being open is one. Being installed to the home screen is another: nobody
+  // installs an app to look at it once, and it is exactly the case where the
+  // next launch may have no network. Already having the model is the third,
+  // since then it costs nothing.
+  if (restored || isStandalone() || (await modelCached())) beginWatching();
+  showOfflineState();
+
   if (!restored) showInstallHint();
   if (!restored && !("wakeLock" in navigator)) {
     showError(
@@ -1858,6 +1957,7 @@ window.__autopage = {
   processFrame,
   setMode(mode) { gestureMode = mode === "tilt" ? "tilt" : "wink"; describeGesture(); },
   get mode() { return gestureMode; },
+  get ready() { return landmarker !== null; },
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
   get scale() { return CALIBRATION_SCALE; },

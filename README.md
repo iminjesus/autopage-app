@@ -101,6 +101,36 @@ press.
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.
 
+### Working with no signal
+
+A rehearsal room with no signal is a normal place to open a score, so this is a
+requirement, not a nicety. Three things have to be on the device: the app shell,
+the score, and the 13MB face model behind the gesture.
+
+The shell is precached by the service worker on install. The score lives in
+IndexedDB from the moment it is opened. The model is the one that needs care —
+it is deliberately **not** fetched on the landing screen, because someone
+opening the link to look at it should not pay 14MB before seeing anything, and
+that made the link too expensive to hand to anyone. It is fetched the moment
+there is a reason: a score being opened, or the app running from the home
+screen, which is the case where the next launch may have no network at all.
+"Save for offline" in the Setup panel does it on demand, and the panel says
+plainly which state you are in rather than leaving it to be discovered at the
+worst moment.
+
+Then there is the condition that actually bites, which is not "offline". A wifi
+that is connected but no longer routes, or a captive portal waiting for a login
+nobody will give it, leaves `fetch` hanging rather than failing — a plain
+network-first worker sits on that with a blank screen. So the network gets two
+and a half seconds and then loses to whatever is already on the device, and the
+first request to time out settles it for the rest of the load instead of each
+file paying separately. That one change took a dead-wifi start from 10.2s to
+2.7s; `tools/offline.mjs` measures it, along with plane mode and a cold visit.
+
+One thing worth knowing: Safari clears unused site data after about a week, and
+a home-screen app is not subject to that. Another reason to add it rather than
+leave it in a tab.
+
 What the iPad specifically needs, and what the app does about it:
 
 - **The screen must not sleep.** A player mid-piece touches nothing, and an iPad

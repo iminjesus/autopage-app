@@ -162,3 +162,31 @@ Comparing against one of them anyway did find three real bugs first: a generator
 polynomial built in reverse, format bits laid down mirrored, and a penalty rule
 that missed every pattern touching the edge of the symbol, which had the mask
 chosen almost at random.
+
+## Deferring the model was only safe once something guaranteed it arrived
+
+A cold visit downloaded 14.11MB, of which 13.3 was the face model and its
+runtime, because the camera started at boot. That is what the link cost to hand
+to somebody — a blank screen and 14MB before they had seen anything, which is
+the opposite of easy to distribute.
+
+The obvious fix is to defer it, and the obvious fix is wrong on its own: a
+rehearsal room with no signal is a normal place to open a score, and an app that
+downloads its gesture lazily is an app whose gesture is missing exactly when it
+matters. So the deferral only shipped alongside the guarantee. The model is
+fetched the moment there is a reason to believe it will be wanted — a score
+opened, or the app launched from the home screen, since nobody installs
+something to look at it once — and the panel states which of the two conditions
+holds rather than leaving it to be found out on a stand. Landing costs 0.50MB;
+opening a score costs the rest.
+
+The related discovery was that "offline" is not the hard case. A device with no
+network fails fast and the cache answers. A wifi that is connected and going
+nowhere leaves `fetch` hanging, and a network-first worker waits on it — twelve
+files at two and a half seconds each, ten seconds of blank screen with someone
+waiting to play. The network now loses to the disk after a grace period, and the
+first timeout settles the verdict for the whole load rather than each file
+re-learning it: 10.2s to 2.7s. None of this was visible from reading the code,
+which is why `tools/offline.mjs` serves the app from a server it can tell to
+stop answering — mocking it in the browser would have intercepted the requests
+before the service worker ever saw them, which is the thing under test.
