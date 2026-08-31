@@ -82,6 +82,19 @@ remove the pedal.
 Reading the measures out of the PDF replaced it. The template capture survives,
 but it now happens silently on every turn instead of being something to do.
 
+## Not a tempo setting
+
+There was a tempo field, and a tap-tempo button beside it. Both are gone.
+
+Once the matcher drove the turns, the tempo only positioned the listening
+window — and a test settled it: with the field left at 120 while the recording
+played at 144, every turn still landed on the music. A control that can be 20%
+wrong without changing the outcome is not a control, it is a chore.
+
+The bar length is now measured instead. A page heard out from one turn to the
+next spans its own length, so dividing by its measure count gives the tempo,
+and the first page supplies it for the rest.
+
 ## Not a Bluetooth pedal
 
 That is the thing being replaced. Pedal-style remotes send arrow keys, so the

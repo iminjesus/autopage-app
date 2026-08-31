@@ -30,8 +30,12 @@ a note has been played.
 
 That is what drives the turn. The microphone hears chroma, a subsequence DTW
 matches it against the expected ending, and the page turns where the music
-actually is. Tempo is only the safety net behind it: if the window closes with
-no match, the page turns on schedule rather than stranding the player.
+actually is — at whatever speed it is being played.
+
+A schedule sits behind it as a safety net, and times itself: a page heard out
+from one turn to the next spans exactly its own length, so its duration divided
+by its measures is the bar length. If the window ever closes with no match, the
+page turns on that estimate rather than stranding the player.
 
 This is not optical music recognition. OMR exists because *scanned* scores are
 pixels with no structure left. A PDF exported from LilyPond, MuseScore, Sibelius
@@ -69,12 +73,13 @@ phrase played four times would make every page end sound identical, which is
 the one thing the matcher cannot resolve.
 
 1. Open the PDF — it reports the measures it found on each page.
-2. Set a rough tempo, by typing it or tapping it. It does not have to be right.
-3. Press **Start** and play. Nothing moves until it hears the first note.
+2. Press **Start** and play. Nothing moves until it hears the first note.
 
-Measured against the fixture: turns land 2.1–2.4s before each page ends, and
-setting the tempo 17% wrong moves them by less than 0.15s — the audio is doing
-the work, not the clock.
+There is no tempo to set. The first page it hears out gives the bar length, and
+the turn itself comes from the music either way. Played against the fixture at
+its written tempo, turns land at 9.8 / 21.5 / 33.4s; played 20% faster with
+nothing reconfigured, at 8.3 / 18.2 / 28.0s. Every one of those was fired by
+the audio, not the clock.
 
 ## Running it
 

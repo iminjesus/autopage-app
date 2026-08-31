@@ -70,9 +70,14 @@ to manual turning rather than guessing.
 
 ### schedule — when the page runs out
 
-Measures times beats-per-bar times seconds-per-beat is the page's length. The
-anchor resets at every turn, automatic or manual, so error cannot accumulate
-across pages.
+Measures times bar length is the page's length, and the bar length is measured,
+not entered. A page heard out from one early turn to the next spans exactly its
+own length, so its duration divided by its measures is the bar length. Until a
+page has been timed the window covers most of the page instead of pretending to
+know where the ending is; afterwards it tightens to a couple of bars.
+
+The anchor resets at every turn, automatic or manual, so error cannot
+accumulate across pages.
 
 It counts **played** time, not wall time. Nothing starts until the first note is
 heard, and the clock stops advancing whenever the instrument falls silent, so a
@@ -117,8 +122,14 @@ through a score is already guided by the music. The template ends `leadBars`
 before the page does, because matching the final chord would fire the turn when
 the page is already over.
 
-Measured against the fixture: a page's template scores ~0.90 at that page's
-ending and ~0.50 elsewhere. The threshold sits at 0.85.
+Measured against the fixture: a page's template scores ~0.88 at that page's
+ending, ~0.50 typically and ~0.70 at worst elsewhere. The threshold sits at 0.8
+and the match must hold two frames.
+
+Those two numbers were tuned from a failure, not guessed. At three frames and
+0.85 the detector missed pages outright when the performance ran 20% off the
+window's expectation: the peak is only a couple of frames wide, and a longer
+confident run simply is not there to be found.
 
 The schedule holds the outside of the window. If nothing matches by the time it
 closes, the page turns anyway — a missed match must not strand the player.
@@ -165,7 +176,7 @@ next open.
 | Nobody is playing | Nothing turns. The clock has not started. |
 | Player stops mid-piece | The clock stops with them and resumes on the next note. |
 | Scanned score, no staves found | Manual turning, stated plainly. |
-| Tempo set wrong | The match still fires on the music. Measured at 17% off, turns moved under 0.15s. |
+| Performance faster or slower than written | The match fires on the music. Measured 20% fast, every turn still came from audio. |
 | Matcher misses | The schedule still turns the page. |
 | Matcher fires early | Player uses the back gesture. Timing re-anchors. |
 | Reached the last page | Schedule stops; nothing left to turn to. |
@@ -183,7 +194,9 @@ Silent degradation to manual is always preferred over a confident wrong turn.
   piano in a room, with pedal and an uneven touch, is the real test.
 - Repeats and da capos, which the reader cannot see and the matcher would
   follow into the wrong page.
-- Dropping the tempo field entirely by estimating it from onsets.
+- Whether the first page is safe with its wide window. Until a page has been
+  timed the detector listens across most of the page, which is the one stretch
+  where a false positive has room to happen.
 - Whether a repetitive piece defeats the matcher. The fixture was deliberately
   written non-repetitive; an eight-bar phrase played four times would make
   every page end sound alike, and only the arming window would separate them.

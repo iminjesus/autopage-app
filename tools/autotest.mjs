@@ -17,9 +17,7 @@ console.log("MEASURES:", JSON.stringify(await page.evaluate(() =>
   [...window.__autopage.state.measures.entries()])));
 console.log("STATUS  :", await page.textContent("#setupStatus"));
 
-const BPM = process.argv[2] || "120";
-await page.fill("#bpmInput", BPM); await page.dispatchEvent("#bpmInput", "change");
-await page.fill("#meterInput", "3"); await page.dispatchEvent("#meterInput", "change");
+const BPM = "n/a";
 await page.fill("#leadInput", "1");  await page.dispatchEvent("#leadInput", "change");
 
 const t0 = Date.now();
@@ -28,8 +26,8 @@ const turns = [];
 let last = 1;
 const poll = setInterval(async () => {
   try {
-    const p = await page.evaluate(() => window.__autopage.state.page);
-    if (p !== last) { turns.push({ to: p, at: +((Date.now() - t0) / 1000).toFixed(1) }); last = p; }
+    const st = await page.evaluate(() => ({ p: window.__autopage.state.page, by: window.__autopage.state.turnedBy }));
+    if (st.p !== last) { turns.push({ to: st.p, at: +((Date.now() - t0) / 1000).toFixed(1), by: st.by }); last = st.p; }
   } catch {}
 }, 150);
 await new Promise((r) => setTimeout(r, 40000));

@@ -51,8 +51,11 @@ const state = {
   confidence: 0,
   hold: 0,
   pageStartedAt: 0, // seconds; when the current page began
-  bpm: 120,
-  beatsPerBar: 3,
+  // How long a bar lasts, measured from the player rather than typed in. The
+  // seed only has to be the right order of magnitude; the first audio-driven
+  // turn replaces it with the real thing.
+  secondsPerBar: 2.0,
+  tempoKnown: false,
   leadBars: 1,
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
   sonorities: new Map(), // page -> harmonies read off the page, in order
@@ -60,6 +63,7 @@ const state = {
   playing: false, // is anything actually sounding right now
   started: false, // has the performance begun at all
   turnAt: null, // seconds; when the schedule says this page ends
+  turnedBy: null, // "audio" | "schedule" | "manual" — what actually fired the last turn
   anchorIsEarly: false, // the anchor sits `leadBars` before the page's first bar
 };
 
@@ -67,8 +71,7 @@ const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
-  "setupPanel", "setupToggle", "startBtn", "tapBtn",
-  "bpmInput", "meterInput", "leadInput",
+  "setupPanel", "setupToggle", "startBtn", "leadInput",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -190,11 +193,12 @@ async function openScore(file) {
     state.sonorities.set(n, read.sonorities);
   }
   buildTemplates();
+  state.tempoKnown = false;
   const counts = [...state.measures.values()];
   if (counts.every((c) => c === null)) {
     setStatus("No staves found — a scanned score can only be turned by hand.");
   } else {
-    setStatus(`Measures per page: ${counts.map((c) => c ?? "?").join(", ")}. Set the tempo and press Start.`);
+    setStatus(`Measures per page: ${counts.map((c) => c ?? "?").join(", ")}. Press Start and play.`);
   }
   resyncTiming();
   render();
@@ -556,7 +560,7 @@ function chromaOf(sonorities) {
 // Scheduling — when this page runs out
 // ============================================================
 
-const secondsPerBar = () => (60 / state.bpm) * state.beatsPerBar;
+const secondsPerBar = () => state.secondsPerBar;
 
 /**
  * Set the moment this page is due to end, or null if it cannot be known.
@@ -582,7 +586,20 @@ function barsRemaining(now) {
   return Math.max(0, (state.turnAt - now) / secondsPerBar());
 }
 
-const armSlack = () => Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
+/**
+ * How far either side of the estimate to listen.
+ *
+ * Until a page has been timed there is no tempo to speak of, so the window
+ * covers most of the page rather than pretending to know where the ending is.
+ * Once one page has been heard out, it tightens to a couple of bars.
+ */
+function armSlack() {
+  if (!state.tempoKnown) {
+    const bars = state.measures.get(state.page) || 8;
+    return bars * secondsPerBar() * 0.6;
+  }
+  return Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
+}
 
 /** True while the audio detector should be listening. */
 function isArmed(now) {
@@ -828,8 +845,16 @@ function detect() {
 
 
   state.confidence = matchScore(recentFrames(TEMPLATE_S * 1.6), template);
+
+  // The peak is narrow — a couple of frames wide when the performance is off
+  // the expected tempo — so demanding a long confident run misses it outright.
+  // Two frames, at a threshold set from the measured gap between a real page
+  // ending and everything else.
   state.hold = state.confidence >= MATCH_THRESHOLD ? state.hold + 1 : 0;
-  if (state.hold >= MATCH_HOLD_FRAMES) nextPage();
+  if (state.hold >= MATCH_HOLD_FRAMES) {
+    state.turnedBy = "audio";
+    nextPage();
+  }
 }
 
 /**
@@ -881,6 +906,14 @@ function turnTo(n) {
   if (next === state.page) return;
   if (next === state.page + 1) {
     captureTemplate(); // only forward turns mark a page ending
+    // A page heard out from one early turn to the next spans exactly its own
+    // length, so its duration divided by its measures is the bar length. This
+    // is why there is no tempo field: the performance states its own tempo.
+    const bars = state.measures.get(state.page);
+    if (state.turnedBy === "audio" && state.anchorIsEarly && bars) {
+      state.secondsPerBar = (nowSeconds() - state.pageStartedAt) / bars;
+      state.tempoKnown = true;
+    }
     state.anchorIsEarly = true;
   }
   state.page = next;
@@ -932,6 +965,9 @@ function render() {
   el.meterFill.classList.toggle("over", state.confidence >= MATCH_THRESHOLD);
   el.meterValue.textContent = state.confidence.toFixed(2);
 
+  if (state.mode === "auto" && state.turnedBy) {
+    el.hudMode.textContent = state.turnedBy === "audio" ? "Auto · heard" : "Auto · clock";
+  }
   el.startBtn.textContent = state.mode === "auto" ? "Stop" : "Start";
   el.startBtn.disabled = !state.doc || !state.measures.get(1);
 }
@@ -939,29 +975,6 @@ function render() {
 // ============================================================
 // Transport
 // ============================================================
-
-const taps = [];
-
-/** Tap tempo — the median interval, so one stray tap does not move it. */
-function tapTempo() {
-  const now = nowSeconds();
-  if (taps.length && now - taps[taps.length - 1] > 2.5) taps.length = 0;
-  taps.push(now);
-  if (taps.length > 6) taps.shift();
-  if (taps.length < 2) return setStatus("Keep tapping…");
-
-  const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
-  const median = gaps[Math.floor(gaps.length / 2)];
-  setBpm(Math.round(60 / median));
-  setStatus(`Tempo ${state.bpm} BPM.`);
-}
-
-function setBpm(bpm) {
-  state.bpm = Math.min(240, Math.max(30, bpm));
-  el.bpmInput.value = String(state.bpm);
-  scheduleTurn();
-  render();
-}
 
 let tickTimer = null;
 
@@ -974,6 +987,7 @@ async function startAuto() {
   state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
   resyncTiming();
 
+  state.tempoKnown = false; // each run measures the tempo afresh
   let heard = true;
   try {
     await startListening();
@@ -993,8 +1007,10 @@ async function startAuto() {
     // With a template the schedule waits for the audio and only steps in when
     // the window closes; without one it is all there is.
     const deadline = state.templates.has(state.page) ? state.turnAt + armSlack() : state.turnAt;
-    if (now >= deadline) nextPage();
-    else render();
+    if (now >= deadline) {
+      state.turnedBy = "schedule";
+      nextPage();
+    } else render();
   }, 100);
 
   render();
@@ -1042,17 +1058,16 @@ el.score.addEventListener("drop", (e) => {
   loadFile(e.dataTransfer && e.dataTransfer.files[0]);
 });
 
-el.nextBtn.addEventListener("click", nextPage);
-el.prevBtn.addEventListener("click", prevPage);
-el.startBtn.addEventListener("click", startAuto);
-el.tapBtn.addEventListener("click", tapTempo);
-
-el.bpmInput.addEventListener("change", () => setBpm(Number(el.bpmInput.value) || 120));
-el.meterInput.addEventListener("change", () => {
-  state.beatsPerBar = Math.min(12, Math.max(1, Number(el.meterInput.value) || 4));
-  scheduleTurn();
-  render();
+el.nextBtn.addEventListener("click", () => {
+  state.turnedBy = "manual";
+  nextPage();
 });
+el.prevBtn.addEventListener("click", () => {
+  state.turnedBy = "manual";
+  prevPage();
+});
+el.startBtn.addEventListener("click", startAuto);
+
 el.leadInput.addEventListener("change", () => {
   state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
   buildTemplates(); // the template ends where the lead says the page does
@@ -1072,8 +1087,14 @@ el.setupToggle.addEventListener("click", () => {
 // Keyboard and pedal-style remotes both arrive as arrow keys.
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
-  if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") nextPage();
-  if (e.key === "ArrowLeft" || e.key === "PageUp") prevPage();
+  if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
+    state.turnedBy = "manual";
+    nextPage();
+  }
+  if (e.key === "ArrowLeft" || e.key === "PageUp") {
+    state.turnedBy = "manual";
+    prevPage();
+  }
 });
 
 // Rasters are sized to the viewport, so a resize invalidates every one of them.

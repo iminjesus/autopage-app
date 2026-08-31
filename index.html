@@ -55,22 +55,10 @@
 
       <div class="panel-body">
         <p class="panel-desc">
-          AutoPage counts the measures on each page by reading the PDF's own
-          drawing commands — no setup. Give it the tempo and it turns for you.
+          AutoPage reads the measures and the notes out of the PDF, then listens
+          for the end of each page. Nothing to set up, and no tempo to enter —
+          it measures that from your playing.
         </p>
-
-        <div class="row">
-          <label class="field">
-            <span>Tempo</span>
-            <input type="number" id="bpmInput" min="30" max="240" value="120" />
-          </label>
-          <button id="tapBtn" class="btn btn-secondary">Tap</button>
-        </div>
-
-        <label class="field">
-          <span>Beats per bar</span>
-          <input type="number" id="meterInput" min="1" max="12" value="3" />
-        </label>
 
         <label class="field">
           <span>Turn this many bars early</span>
@@ -79,7 +67,8 @@
 
         <button id="startBtn" class="btn btn-primary btn-block" disabled>Start</button>
 
-        <!-- Live match confidence, shown once a page has been heard before. -->
+        <!-- Live match confidence. Visible because the whole design rests on
+             this number staying low except at a real page ending. -->
         <div class="meter" id="meter" hidden>
           <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
           <span class="meter-value" id="meterValue">0.00</span>
