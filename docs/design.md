@@ -185,7 +185,11 @@ after the fact, without anyone having to catch it happening.
 
 ### what the player sees
 
-The score, the page number, and a Setup chip in the corner. That is all.
+The score and a Setup chip in the corner. That is all.
+
+There is no page counter over the music either. The score carries its own page
+numbers, and a second one floating on top of it is one more thing between the
+player and the only thing they are looking at.
 
 Everything else is off screen until it is asked for. Calibration is not a thing
 that happens each session — it is done once, and it belongs behind the chip with

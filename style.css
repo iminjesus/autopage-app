@@ -10,7 +10,7 @@
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
-/* .hud and .nav set `display: flex`, which outranks the UA rule behind the
+/* .nav and .watch set `display: flex`, which outranks the UA rule behind the
    `hidden` attribute — without this they show before a score is even open. */
 [hidden] {
   display: none !important;
@@ -100,45 +100,6 @@ body {
   color: #ff8a8f;
   font-size: 13px;
   line-height: 1.5;
-}
-
-/* --- HUD --- */
-
-.hud {
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 14px;
-  align-items: center;
-  background: rgba(23, 26, 33, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.hud-page {
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-
-/* The mode indicator is not decoration — when automation steps back the player
-   has to notice, or they will wait for a turn that is not coming. */
-.hud-mode {
-  font-weight: 600;
-}
-
-/* A dot, not a countdown. A number ticking down in the corner is something to
-   watch, and the one thing a player must not be doing mid-piece is watching the
-   app. It only says "the ending is close and I am listening for it". */
-.hud-armed {
-  color: var(--armed);
-  font-size: 9px;
-  line-height: 1;
 }
 
 /* --- Navigation --- */

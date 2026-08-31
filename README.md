@@ -9,7 +9,8 @@ misses or turns at the wrong moment.
 
 **Status: winking turns the pages.** Open a score and wink — right eye
 forward, left eye back. The camera starts on its own; the browser asks once and
-remembers. There is nothing to switch on and nothing to press.
+remembers. There is nothing to switch on and nothing to press, and nothing on
+screen but the score.
 
 Listening has been taken out for now. The audio matcher worked — it turned every
 page of the fixture on the music, at the written tempo and 20% faster, and

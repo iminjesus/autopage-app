@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01a wink-only";
+const BUILD = "2026-09-01b score-only";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -48,7 +48,7 @@ const state = {
 const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
-  "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
+  "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "swapField", "swapInput",
@@ -156,7 +156,6 @@ async function openScore(file) {
 
   el.scoreEmpty.hidden = true;
   el.scoreCanvas.hidden = false;
-  el.hud.hidden = false;
   el.nav.hidden = false;
   el.setupPanel.hidden = false;
 
@@ -1001,7 +1000,7 @@ const prevPage = () => turnTo(state.page - 1);
 
 function renderDiag() {
   el.diag.innerHTML = [
-    `camera ${landmarker ? "on" : "off"}   build ${BUILD}`,
+    `page ${state.page}/${state.pageCount || "?"}   camera ${landmarker ? "on" : "off"}   build ${BUILD}`,
     state.turnLog.length
       ? "turns: " +
         state.turnLog
@@ -1022,9 +1021,9 @@ function showError(message) {
 }
 
 function render() {
-  el.hudPage.textContent = state.pageCount ? `${state.page} / ${state.pageCount}` : "— / —";
-  el.hudMode.textContent = landmarker ? "Wink" : "Manual";
-  el.hudArmed.hidden = true;
+  // No page counter over the score. The score has its own page numbers, and a
+  // second one floating on top of the music is one more thing in the way of
+  // the only thing anyone is looking at.
   el.prevBtn.disabled = state.page <= 1;
   el.nextBtn.disabled = state.page >= state.pageCount;
   renderDiag();
