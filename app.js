@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01j tilt-must-be-quick";
+const BUILD = "2026-09-01l tilt-both-ways";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -51,8 +51,8 @@ for (const id of [
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
-  "holdField", "holdInput", "swapField", "swapInput", "modeField", "modeInput",
-  "setupStatus",
+  "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
+  "modeField", "modeInput", "gestureHelp", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
 /**
@@ -362,7 +362,7 @@ let gestureHoldMs = 200;
 // been wrong about enough conventions in this project to deserve an override
 // that takes one click rather than another round trip.
 let swapEyes = false;
-let gestureMode = "wink"; // "wink" | "brow"
+let gestureMode = "wink"; // "wink" | "tilt"
 
 // Head pose is measured but gates nothing. Turning the head hides part of one
 // eye and the model reports that as closing, which is where the false turns
@@ -397,28 +397,20 @@ const CALIBRATION_SCALE = "eyelid-v3";
 const SWAP_KEY = "autopage.winkSwap";
 const MODE_KEY = "autopage.gestureMode";
 
-// Eyebrows, for faces the eyelids do not work on.
+// The head tilt, for faces the eyelids cannot be read on.
 //
 // A lens rim sits exactly where the lid contour is and reflections wash out the
 // lower lid, so eyelid geometry is at its limit behind glasses — that is not a
-// threshold that can be tuned, it is the measurement being obstructed. Brows
-// are above the lenses, unobstructed, high contrast, and they do not move on
-// their own while playing.
+// threshold that can be tuned, it is the measurement being obstructed. A tilt
+// is geometry of a different kind: the angle of the line between the eyes. No
+// lens is in its way, so it reads the same with glasses on or off, and it is
+// the one gesture that does.
 //
-// These come from the model's own expression scores rather than from geometry.
-// The scores failed for winking because they could not resolve which eye was
-// closing; raising both brows needs no such resolution, which is the case they
-// are good at.
-const BROW_THRESHOLD = 0.35;
-
-// Going back is a head tilt, not a frown.
+// It carries both directions on its own. Tilting to the player's right turns
+// forward, to their left turns back — the eyebrows used to carry forward, and
+// they are gone: a brow raise was a second scale to calibrate, a second thing
+// to explain, and one that could only ever mean one of the two directions.
 //
-// Frowning reads badly behind glasses for the same reason winking does: the
-// frame sits exactly where the brow travels down to, and the score for it is
-// the weaker half of the pair to begin with. Raising the brows is unobstructed
-// and works; lowering them does not. A tilt is geometry — the angle of the line
-// between the eyes — so no lens is in its way at all, and holding a head over
-// to one side is not something that happens by accident at the keyboard.
 // Deliberately large. Leaning in to read a low stave, or settling into a
 // phrase, is a real tilt of ten degrees or so, and a threshold near that would
 // turn pages on posture. Seventeen is past where anyone drifts by accident, and
@@ -544,8 +536,13 @@ function loadHold() {
   swapEyes = localStorage.getItem(SWAP_KEY) === "1";
   el.swapInput.checked = swapEyes;
 
-  gestureMode = localStorage.getItem(MODE_KEY) === "brow" ? "brow" : "wink";
-  el.modeInput.checked = gestureMode === "brow";
+  // "brow" is what this used to be stored as, back when raising the eyebrows
+  // was forward and the tilt was only back. The tilt carries both directions
+  // now, so anyone already on that mode belongs here.
+  const storedMode = localStorage.getItem(MODE_KEY);
+  gestureMode = storedMode === "tilt" || storedMode === "brow" ? "tilt" : "wink";
+  el.modeInput.checked = gestureMode === "tilt";
+  describeGesture();
 }
 
 function loadCalibration() {
@@ -611,6 +608,7 @@ async function startGesture() {
   el.holdField.hidden = false;
   el.swapField.hidden = false;
   el.modeField.hidden = false;
+  describeGesture();
 }
 
 function stopGesture() {
@@ -663,13 +661,37 @@ function minAbsDiff() {
   return calibration?.minAbsDiff ?? MIN_ABS_DIFF;
 }
 
-function browDirection(brow, roll) {
-  // Back is checked first: a tilted head can raise the brows a little as it
-  // goes, and the tilt is the deliberate half of that pair.
-  const rollLimit = calibration?.brow?.back ?? ROLL_THRESHOLD;
-  if (Math.abs(roll) > rollLimit && rollRate > ROLL_RATE) return -1;
-  const browLimit = calibration?.brow?.forward ?? BROW_THRESHOLD;
-  return brow > browLimit ? 1 : 0;
+/** How far the head has to go over, in radians. Measured if it has been. */
+function tiltLimit() {
+  if (calibration?.mode === "tilt") return calibration.tilt?.limit ?? ROLL_THRESHOLD;
+  return ROLL_THRESHOLD;
+}
+
+/**
+ * Which sign of roll means "tilted to the player's right", and so forward.
+ *
+ * Unmirrored, the player's right eye falls on the left of the image, and
+ * dropping it towards their right shoulder turns the eye line clockwise on
+ * screen — which comes out of atan2 negative. That is the default. It is not
+ * relied on: calibration watches which way the roll actually went when the
+ * player was asked to tilt right, and the Swap sides box is there for the case
+ * where neither was right.
+ */
+const DEFAULT_TILT_SIGN = -1;
+
+function tiltSign() {
+  const measured = calibration?.mode === "tilt" ? calibration.tilt?.forwardSign : null;
+  return (measured ?? DEFAULT_TILT_SIGN) * (swapEyes ? -1 : 1);
+}
+
+function tiltDirection(roll) {
+  // Both tests, and the speed one first: nodding to the beat is pitch and never
+  // appears here at all, but leaning into a phrase reaches the same angle a
+  // command does. What separates them is that the command arrives in about a
+  // third of a second and the lean drifts in over a second or more.
+  if (rollRate <= ROLL_RATE) return 0;
+  if (Math.abs(roll) <= tiltLimit()) return 0;
+  return roll * tiltSign() > 0 ? 1 : -1;
 }
 
 function winkDirection(signedAsym, absDiff) {
@@ -745,16 +767,6 @@ function eyeOf(landmarks, points) {
  *
  * @returns {{asym: number, openL: number, openR: number}|null}
  */
-/**
- * Brow position as one signed number: up is forward, furrowed is back.
- *
- * Both brows move together, so there is no left and right to tell apart and no
- * reference to learn — the scores are already relative to a neutral face.
- */
-function browSignal(shapes) {
-  return blendshape(shapes, "browInnerUp");
-}
-
 /** How far the head is tilted, in radians, from the line between the eyes. */
 function headRoll(landmarks) {
   const a = landmarks[33];
@@ -881,15 +893,14 @@ function processFrame(landmarks, shapes) {
   const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
   if (calibrating) {
-    // In brow mode the two directions are measured on different scales — a
-    // score for the raise, radians for the tilt — so each phase records its own.
-    const value =
-      gestureMode !== "brow"
-        ? asym
-        : calibrating.index === 2
-        ? Math.abs(headRoll(landmarks))
-        : browSignal(shapes);
-    return sampleCalibration(value, Math.abs(value), gestureMode === "brow" ? 1 : absDiff);
+    // In tilt mode the measurement is an angle, and its sign is the whole
+    // point — it is what says which way "right" came out on this camera. So the
+    // signed roll is what gets recorded, not its size.
+    if (gestureMode === "tilt") {
+      const roll = headRoll(landmarks);
+      return sampleCalibration(roll, Math.abs(roll), 1);
+    }
+    return sampleCalibration(asym, Math.abs(asym), absDiff);
   }
 
   // Back to judging the raw difference between the eyes.
@@ -911,6 +922,28 @@ function processFrame(landmarks, shapes) {
     l: left, r: right, d: asym, y: headYaw, s: yawSwing, p: poseReliable,
   });
   notePeaks(left, right, asym);
+
+  if (gestureMode === "tilt") {
+    // The swing veto does not apply here, and applying it made the gesture veto
+    // itself. It exists because a wink moves no head at all, so head movement
+    // during one can only be something else — reasoning that says nothing about
+    // a gesture which *is* head movement. Worse, the yaw proxy is built from
+    // nose-to-eye-corner distances, and rolling the head changes those: a tilt
+    // arriving at the speed this mode demands registered as a shake and threw
+    // away the first four frames of every one. What separates a deliberate tilt
+    // from swaying is its own angle and onset, below; nothing else is needed.
+    const unstable = !poseReliable;
+    const roll = headRoll(landmarks);
+    const towards = roll * tiltSign() > 0 ? "forward" : "back";
+    const deg = (rad) => `${rad >= 0 ? "+" : ""}${((rad * 180) / Math.PI).toFixed(0)}°`;
+    el.gestureAsym.textContent =
+      `tilt  roll ${deg(roll)} (${towards})  onset ${((rollRate * 180) / Math.PI).toFixed(0)}°/0.3s` +
+      `  ${gestureHold}/${requiredVotes()}f${unstable ? "  TURNED AWAY" : ""}\n` +
+      `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°  arriving faster than ` +
+      `${((ROLL_RATE * 180) / Math.PI).toFixed(0)}°/0.3s`;
+    return decide(unstable ? 0 : tiltDirection(roll), unstable);
+  }
+
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
     `  gap ${absDiff.toFixed(3)}/${limitsFor(signed > 0 ? 1 : -1).gate.toFixed(3)}` +
@@ -920,17 +953,24 @@ function processFrame(landmarks, shapes) {
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
     `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
 
+  decide(shaking ? 0 : winkDirection(signed, absDiff), shaking);
+}
+
+/**
+ * Turn the page, or don't, on this frame's verdict.
+ *
+ * Shared by both gestures. Everything above it is the measurement, which is
+ * where the two differ; the voting, the release latch and the cooldown are the
+ * same rules whichever way the page was asked for, and having had two copies of
+ * them is how one mode kept drifting away from the other.
+ */
+function decide(direction, shaking) {
   if (shaking) {
     recent.length = 0;
     gestureHold = 0;
     gestureDirection = 0;
     return;
   }
-
-  const direction =
-    gestureMode === "brow"
-      ? browDirection(browSignal(shapes), headRoll(landmarks))
-      : winkDirection(signed, absDiff);
 
   recent.push(direction);
   while (recent.length > holdWindow()) recent.shift();
@@ -952,10 +992,11 @@ function processFrame(landmarks, shapes) {
     gestureHold = 0;
     gestureLatched = true;
     lastGestureAt = nowSeconds();
-    state.turnedBy = "wink";
+    const gesture = gestureMode === "tilt" ? "tilt" : "wink";
+    state.turnedBy = gesture;
     // Say what the numbers were, every time, so a wrong turn explains itself
     // without anyone having to catch it happening.
-    lastWinkReport = traceReport(direction > 0 ? "wink forward" : "wink back");
+    lastWinkReport = traceReport(`${gesture} ${direction > 0 ? "forward" : "back"}`);
     el.calibStatus.textContent = lastWinkReport;
     if (direction > 0) nextPage();
     else prevPage();
@@ -974,12 +1015,43 @@ const WINK_PHASES = [
   { key: "right", seconds: 6, prompt: "Wink your RIGHT eye and hold. Repeat a few times." },
   { key: "left", seconds: 6, prompt: "Wink your LEFT eye and hold. Repeat a few times." },
 ];
-const BROW_PHASES = [
-  { key: "noise", seconds: 6, prompt: "Look at the camera with a relaxed face." },
-  { key: "right", seconds: 6, prompt: "RAISE your eyebrows and hold. Repeat a few times." },
-  { key: "left", seconds: 6, prompt: "TILT your head to one side and hold. Repeat a few times." },
+const TILT_PHASES = [
+  { key: "noise", seconds: 6, prompt: "Look at the camera, head level. Sway a little, as you would playing." },
+  { key: "right", seconds: 6, prompt: "TILT your head to your RIGHT — quickly, then hold. Repeat a few times." },
+  { key: "left", seconds: 6, prompt: "TILT your head to your LEFT — quickly, then hold. Repeat a few times." },
 ];
-const phases = () => (gestureMode === "brow" ? BROW_PHASES : WINK_PHASES);
+const phases = () => (gestureMode === "tilt" ? TILT_PHASES : WINK_PHASES);
+
+/**
+ * Say what the app is actually watching for, in the mode it is actually in.
+ *
+ * Three gestures turn pages, not two, and the head tilt was the one with no
+ * description anywhere — it lived in a clause at the end of a checkbox label.
+ * A gesture nobody has been told about reads as the app misfiring. The numbers
+ * come from the constants above so the text cannot drift away from the code.
+ */
+function describeGesture() {
+  const deg = (rad) => Math.round((rad * 180) / Math.PI);
+
+  if (gestureMode === "tilt") {
+    el.gestureHelp.textContent =
+      "Forward — tilt your head to your right.\n" +
+      "Back — tilt your head to your left.\n" +
+      `Go past about ${deg(tiltLimit())}° and get there quickly: a tilt meant as a ` +
+      "command arrives in about a third of a second, where leaning into a phrase " +
+      "drifts over. Nodding with the beat tips the head forward, a different " +
+      "axis, and never registers as a tilt at all.";
+  } else {
+    el.gestureHelp.textContent =
+      "Forward — wink your right eye and hold.\n" +
+      "Back — wink your left eye and hold.\n" +
+      "A blink closes both eyes at once, so it is ignored; so is any frame " +
+      "where your head is turned away or moving quickly. The head does not " +
+      "turn pages in this mode.";
+  }
+
+  el.holdLabel.textContent = gestureMode === "tilt" ? "Hold length (ms)" : "Wink length (ms)";
+}
 
 function setCardMessage(text) {
   el.gestureStatus.hidden = !text;
@@ -1070,10 +1142,15 @@ function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
   const eyePeaks = calibrating.eyePeaks;
   const gapPeaks = calibrating.gapPeaks;
+  const mode = gestureMode;
   calibrating = null;
   el.camPreview.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
   showWatch();
+
+  // A tilt is an angle, not a pair of eyelids. None of what follows applies to
+  // it, so it does not run through any of it.
+  if (mode === "tilt") return finishTiltCalibration(noise, right, left);
 
   // Blinks are symmetric, so their asymmetry is the noise this has to clear.
   const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
@@ -1130,20 +1207,9 @@ function finishCalibration() {
   const gapPeak = Math.min(gapPeaks.right, gapPeaks.left);
   const gate = Math.max(0.006, Math.min(0.02, gapPeak * 0.4));
 
-  // Brow scores are already normalised, so the levels are the thresholds; only
-  // the shape of the measurement differs, not the procedure.
-  const brow =
-    gestureMode === "brow"
-      ? {
-          forward: Math.max(0.15, (noiseLevel + Math.abs(forward.level)) / 2),
-          back: Math.max(0.12, Math.abs(back.level) * 0.6),
-        }
-      : calibration?.brow;
-
   calibration = {
     scale: CALIBRATION_SCALE,
-    mode: gestureMode,
-    brow,
+    mode: "wink",
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
     minAbsDiff: gate, gapPeak, forward, back,
     savedAt: new Date().toISOString().slice(0, 10),
@@ -1169,6 +1235,76 @@ function finishCalibration() {
   );
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000); // then get off the score
+}
+
+/**
+ * Turn three phases of head angles into a limit and a direction.
+ *
+ * Two things come out of this, and the second matters more than the first.
+ * The limit is how far over counts, set from the tilt the player actually
+ * performed rather than from a constant. The direction is which sign of roll
+ * their right-hand tilt produced on this camera — measured, because a mirrored
+ * preview, a front camera and a rear one give three chances to get it
+ * backwards, and getting it backwards swaps forward and back.
+ */
+function finishTiltCalibration(noise, right, left) {
+  // Swaying at the keyboard is what a tilt has to clear, so the level phase is
+  // deliberately not "hold still" — it is "sway as you would playing".
+  const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
+
+  const rightPos = topMean(right, 0.1);
+  const rightNeg = topMean(right.map((v) => -v), 0.1);
+  const leftPos = topMean(left, 0.1);
+  const leftNeg = topMean(left.map((v) => -v), 0.1);
+
+  const rightLevel = Math.max(rightPos, rightNeg);
+  const leftLevel = Math.max(leftPos, leftNeg);
+  const forwardSign = rightPos >= rightNeg ? 1 : -1;
+  const level = Math.min(rightLevel, leftLevel);
+  const deg = (rad) => ((rad * 180) / Math.PI).toFixed(0);
+
+  // Under about nine degrees the tilt is inside the range a player sways
+  // through anyway. No threshold rescues that, and storing it would spend the
+  // session turning pages on posture.
+  if (level < 0.15) {
+    setCardMessage(
+      `The tilt was too small — ${deg(level)}° at its strongest, and swaying alone ` +
+        `reaches ${deg(noiseLevel)}°.\nTilt further, closer to laying an ear towards ` +
+        "your shoulder, and calibrate again. Nothing was saved."
+    );
+    return;
+  }
+
+  // Half of what was performed: comfortably above the sway, comfortably below
+  // having to repeat the full gesture every time.
+  const limit = Math.min(0.45, Math.max(0.12, noiseLevel * 2, level * 0.5));
+  const separation = level / noiseLevel;
+
+  calibration = {
+    scale: CALIBRATION_SCALE,
+    mode: "tilt",
+    tilt: { limit, forwardSign, rightLevel, leftLevel, noiseLevel },
+    threshold: limit,
+    separation,
+    savedAt: new Date().toISOString().slice(0, 10),
+  };
+  staleCalibration = false;
+  try {
+    localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
+  } catch {}
+
+  const verdict =
+    separation >= 2.5
+      ? "Good separation — a deliberate tilt is well clear of the way you sway."
+      : "Marginal. It will work, but tilt further than feels necessary and expect the odd miss.";
+
+  setCardMessage(
+    `right: ${deg(rightLevel)}°   left: ${deg(leftLevel)}°   swaying: ${deg(noiseLevel)}°\n` +
+      `A tilt past ${deg(limit)}° turns the page.\n${verdict}`
+  );
+  showCalibrationState();
+  setTimeout(() => setCardMessage(""), 12000);
+  describeGesture(); // the help text quotes the limit, which just changed
 }
 
 // ============================================================
@@ -1313,10 +1449,11 @@ el.allowBtn.addEventListener("click", beginWatching);
 el.calibrateBtn.addEventListener("click", startCalibration);
 
 el.modeInput.addEventListener("change", () => {
-  gestureMode = el.modeInput.checked ? "brow" : "wink";
+  gestureMode = el.modeInput.checked ? "tilt" : "wink";
   try {
     localStorage.setItem(MODE_KEY, gestureMode);
   } catch {}
+  describeGesture();
   // The two are measured on different scales, so a calibration for one says
   // nothing about the other.
   el.calibStatus.textContent =
@@ -1393,7 +1530,8 @@ window.__autopage = {
   get requiredVotes() { return requiredVotes(); },
   get holdWindow() { return holdWindow(); },
   processFrame,
-  setMode(mode) { gestureMode = mode === "brow" ? "brow" : "wink"; },
+  setMode(mode) { gestureMode = mode === "tilt" ? "tilt" : "wink"; describeGesture(); },
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
+  get scale() { return CALIBRATION_SCALE; },
 };

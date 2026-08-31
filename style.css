@@ -182,6 +182,18 @@ body {
   margin: 0 0 14px;
 }
 
+/* The gesture list is written one gesture per line, so the breaks matter. */
+#gestureHelp {
+  white-space: pre-line;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.panel-desc-quiet {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
 .row {
   display: flex;
   gap: 10px;

@@ -293,21 +293,31 @@ count, a wink that only half closes, a look down with both lids low, a head
 shake, and two seconds of nothing. It found the half-closed wink being rejected
 and, in its own first run, two mistakes in itself.
 
-### eyebrows, when the eyelids cannot be read
+### the head tilt, when the eyelids cannot be read
 
 Behind glasses the eyelid measure runs out. A lens rim sits exactly where the
 lid contour is and reflections wash out the lower lid, so the landmarks it
 depends on are obstructed rather than merely noisy — no threshold reaches past
 that, and calibrating with the glasses on only makes it intermittent.
 
-Brows are above the lenses. They are unobstructed, high contrast, and they do
-not move on their own while playing. Raising them turns forward.
+A tilt is geometry of a different kind: the angle of the line between the eyes.
+No lens is anywhere near it, so it reads the same with glasses on or off, and it
+is the one gesture that does. **Tilt to your right to turn forward, to your left
+to go back.**
 
-Frowning does not work for going back, and for the same reason winking does not:
-the frame sits exactly where the brow travels down to, and the score for it is
-the weaker half of the pair to begin with. Going back is a **head tilt** — the
-angle of the line between the eyes, which is geometry with no lens anywhere
-near it.
+There were eyebrows here for a while, carrying forward while the tilt carried
+back. They are gone. A brow raise was a second scale to calibrate and a second
+thing to explain, and it could only ever mean one of the two directions — the
+tilt already carries both, on one measurement, with one calibration. So the
+choice is now simply: **wink, or tilt.** Glasses off, either; glasses on, tilt.
+
+Which sign of roll means "to your right" is measured, not assumed. Unmirrored,
+the player's right eye falls on the left of the image and dropping it towards
+their right shoulder turns the eye line clockwise on screen — but a mirrored
+preview, a front camera and a rear one are three chances to get that backwards,
+and backwards swaps forward and back. Calibration watches which way the angle
+actually went when the player was asked to tilt right, and the Swap sides box is
+there for the case where even that was not enough.
 
 A tilt has to be deliberate to count, and angle alone does not establish that.
 Players move their heads constantly — nodding to the beat, leaning into a
@@ -320,20 +330,27 @@ more; a tilt meant as a command arrives in about a third of one. Measured
 against both, inside a 300ms window: an expressive lean to 20 degrees over 1.5s
 moves 3.6 degrees, one to 25 degrees over 2.5s moves 2.7, and a deliberate tilt
 to 20 degrees moves 11 to 18. The requirement is seventeen degrees of angle and
-eight degrees of change within 300ms, and both have to hold.
+eight degrees of change within 300ms, and both have to hold. Calibration
+replaces the angle with half of the tilt actually performed.
 
-The test pins all of it: leans of seven, ten and fourteen degrees held for two
+The anti-shake veto does **not** apply in this mode, and applying it made the
+gesture veto itself. It exists because a wink moves no head at all, so head
+movement during one can only be something else — reasoning that says nothing
+about a gesture which *is* head movement. Worse, the yaw proxy is built from
+nose-to-eye-corner distances, and rolling the head changes those: a tilt
+arriving at the speed this mode demands registered as a shake and threw away the
+first four frames of every one. Two test cases caught that, and nothing else
+would have.
+
+The test pins the rest: leans of seven, ten and fourteen degrees held for two
 seconds turn nothing, expressive leans to twenty and twenty-five degrees turn
-nothing, and a deliberate tilt over 0.3s turns back.
-
-This one uses the model's expression scores rather than geometry, and that is
-consistent rather than contradictory: the scores failed for winking because they
-could not resolve *which* eye was closing. Both brows move together, so there is
-nothing to resolve — it is the case the scores are good at, and there is no
-reference to learn or drift.
+nothing, a deliberate tilt right turns forward and a deliberate tilt left turns
+back, and winking in tilt mode does nothing at all.
 
 Which gesture is in use is a setting, and a calibration belongs to the gesture
-it was measured on: the panel says so rather than applying wink numbers to brows.
+it was measured on: the panel says so rather than applying wink numbers to
+angles. Both gestures are described in the panel, in the mode they belong to —
+a gesture nobody has been told about reads as the app misfiring.
 
 ### calibration — the part that is not optional
 

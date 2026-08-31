@@ -91,28 +91,31 @@ for (const [label, opts, want] of cases) {
   const r = await run(label, opts);
   console.log(`${r.turned === want ? "ok  " : "FAIL"} ${label.padEnd(28)} ${r.from}->${r.to}  (want ${want ? "a turn" : "no turn"})`);
 }
-console.log("--- eyebrows, for faces the eyelids do not work on");
-const browCases = [
-  ["relaxed face 2s",      { gapL: open, gapR: open, frames: 60, brow: 0.0,  mode: "brow" }, false],
-  ["brows raised 0.4s",    { gapL: open, gapR: open, frames: 12, brow: 0.7,  mode: "brow" }, true],
-  ["brows raised 0.1s",    { gapL: open, gapR: open, frames: 3,  brow: 0.7,  mode: "brow" }, false],
-  ["head tilt 20deg 0.4s", { gapL: open, gapR: open, frames: 12, roll: 0.35, mode: "brow" }, true],
-  ["head tilt the other way", { gapL: open, gapR: open, frames: 12, roll: -0.35, mode: "brow" }, true],
-  ["lean 7deg for 2s",     { gapL: open, gapR: open, frames: 60, roll: 0.12, mode: "brow" }, false],
-  ["lean 10deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.17, mode: "brow" }, false],
-  ["lean 14deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.24, mode: "brow" }, false],
+console.log("--- the head tilt: right is forward, left is back");
+// Positive roll here drops the player's LEFT eye, which is a tilt to their
+// left, which is back. Negative roll is a tilt to their right: forward.
+const tiltCases = [
+  ["head level 2s",              { gapL: open, gapR: open, frames: 60, roll: 0,     mode: "tilt" }, 2],
+  ["tilt right 20deg 0.4s",      { gapL: open, gapR: open, frames: 12, roll: -0.35, mode: "tilt" }, 3],
+  ["tilt left 20deg 0.4s",       { gapL: open, gapR: open, frames: 12, roll: 0.35,  mode: "tilt" }, 1],
+  ["tilt right 0.1s",            { gapL: open, gapR: open, frames: 3,  roll: -0.35, mode: "tilt" }, 2],
+  ["lean 7deg for 2s",           { gapL: open, gapR: open, frames: 60, roll: 0.12,  mode: "tilt" }, 2],
+  ["lean 10deg for 2s",          { gapL: open, gapR: open, frames: 60, roll: 0.17,  mode: "tilt" }, 2],
+  ["lean 14deg for 2s",          { gapL: open, gapR: open, frames: 60, roll: 0.24,  mode: "tilt" }, 2],
   // Expression reaches the same angle, but it drifts there.
-  ["expressive lean 20deg over 1.5s", { gapL: open, gapR: open, frames: 90, roll: 0.35, rise: 1.5, mode: "brow" }, false],
-  ["expressive lean 25deg over 2.5s", { gapL: open, gapR: open, frames: 120, roll: 0.44, rise: 2.5, mode: "brow" }, false],
-  ["deliberate tilt over 0.3s",       { gapL: open, gapR: open, frames: 30, roll: 0.35, rise: 0.3, mode: "brow" }, true],
-  ["slight brow movement", { gapL: open, gapR: open, frames: 60, brow: 0.2,  mode: "brow" }, false],
-  ["winking in brow mode", { gapL: open, gapR: shut, frames: 30, brow: 0.0,  mode: "brow" }, false],
+  ["expressive lean 20deg over 1.5s", { gapL: open, gapR: open, frames: 90,  roll: 0.35, rise: 1.5, mode: "tilt" }, 2],
+  ["expressive lean 25deg over 2.5s", { gapL: open, gapR: open, frames: 120, roll: 0.44, rise: 2.5, mode: "tilt" }, 2],
+  ["deliberate tilt right over 0.3s", { gapL: open, gapR: open, frames: 30, roll: -0.35, rise: 0.3, mode: "tilt" }, 3],
+  ["deliberate tilt left over 0.3s",  { gapL: open, gapR: open, frames: 30, roll: 0.35,  rise: 0.3, mode: "tilt" }, 1],
+  ["raised eyebrows do nothing", { gapL: open, gapR: open, frames: 60, brow: 0.9,   mode: "tilt" }, 2],
+  ["winking in tilt mode",       { gapL: open, gapR: shut, frames: 30, roll: 0,     mode: "tilt" }, 2],
 ];
-for (const [label, opts, want] of browCases) {
+for (const [label, opts, want] of tiltCases) {
   await p.evaluate(() => { window.__autopage.state.page = 2; });
   await p.waitForTimeout(700);
   const r = await run(label, opts);
-  console.log(`${r.turned === want ? "ok  " : "FAIL"} ${label.padEnd(28)} ${r.from}->${r.to}  (want ${want ? "a turn" : "no turn"})`);
+  const how = want === 3 ? "forward" : want === 1 ? "back" : "no turn";
+  console.log(`${r.to === want ? "ok  " : "FAIL"} ${label.padEnd(34)} ${r.from}->${r.to}  (want ${how})`);
 }
 await p.evaluate(() => window.__autopage.setMode("wink"));
 console.log("ERRORS:", errs.length ? errs : "none");
