@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31k shorter-wink-no-shake";
+const BUILD = "2026-08-31l gesture-error-visible";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -923,6 +923,7 @@ const CALIBRATION_KEY = "autopage.wink";
 let landmarker = null;
 let camStream = null;
 let gestureTimer = null;
+let gestureHold = 0;
 let gestureDirection = 0;
 // The last few frames' verdicts. A quick wink can dip under the threshold for
 // a frame on its way up or down, and demanding an unbroken run throws the
@@ -1078,6 +1079,18 @@ function updateHeadPose(landmarks) {
 
 function onGestureFrame() {
   if (!landmarker || el.camPreview.readyState < 2) return;
+  try {
+    gestureFrame();
+  } catch (err) {
+    // Anything thrown here fires thirty times a second and, without this, does
+    // so entirely silently — the gesture simply stops working with no sign of
+    // why. Say it on the panel and keep the rest of the app alive.
+    console.error("gesture frame failed:", err);
+    el.gestureAsym.textContent = `Gesture error: ${err.message}`;
+  }
+}
+
+function gestureFrame() {
 
   const result = landmarker.detectForVideo(el.camPreview, performance.now());
   const shapes = result.faceBlendshapes?.[0]?.categories;
