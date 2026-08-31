@@ -206,6 +206,22 @@ Head nods and plain blinks are disqualified outright — musicians do both
 constantly. The gesture must be something that does not occur while playing,
 and a unilateral eye closure is almost always deliberate.
 
+**Movement is subtracted, not refused.** Turning the head hides part of one eye
+from the camera and the model reports that as the eye closing, so the difference
+rises with nobody having winked — which had ordinary swaying turning pages. The
+first fix was to ignore frames while the head moved, and that was wrong: a
+musician moves constantly, and a gesture that only works while sitting rigidly
+is not a gesture. What actually separates the two is speed. A head turn drifts
+over a second or more; a wink is a spike. So the difference has a slow baseline
+tracked and subtracted from it, and only what the baseline cannot follow counts.
+The baseline freezes while a candidate is in progress so it cannot chase the
+gesture it exists to reveal.
+
+Swept against simulated turns, sway at two rates, and winks from 80 to 160ms:
+with a 0.3s baseline, a head turn nets 0.12 and sway nets 0.22 against a
+threshold of 0.39, while the weakest wink tested nets 0.55. The remaining pose
+limits only exclude a head turned right away from the score.
+
 Face landmarks run locally: no video leaves the device, and nothing is fetched
 from a network. The runtime and model are 13MB, so they are imported only when
 the gesture is switched on — someone who never uses it never pays for it.

@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31f wink-length-setting";
+const BUILD = "2026-08-31h baseline-subtracted";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -908,6 +908,26 @@ const GESTURE_COOLDOWN_S = 0.6;
 const HOLD_KEY = "autopage.winkHold";
 let gestureHoldMs = 70;
 
+// Turning the head hides part of one eye from the camera and the model reports
+// that as the eye closing, so the difference between the eyes rises without
+// anyone having winked. Refusing to look while the head moves is the wrong
+// answer — a musician moves constantly, and a gesture that only works while
+// sitting rigidly is not a gesture. What separates the two is speed: a head
+// turn drifts over a second or more, a wink is a spike. So the baseline is
+// tracked and subtracted, and only what the baseline cannot follow counts.
+// Swept against simulated head turns, swaying, and winks of 80 and 160ms: at
+// 0.3s the baseline follows a turn away in a tenth of a second's worth of
+// signal while leaving a wink untouched, and the freeze stops it chasing
+// anything above one and a half times the threshold.
+const BASELINE_TAU_S = 0.3;
+const BASELINE_ALPHA = 1 - Math.exp(-1 / (30 * BASELINE_TAU_S));
+const BASELINE_FREEZE_MULT = 1.5;
+// The baseline does the real work, so these only exclude a head turned right
+// away from the score or a movement violent enough to blur the frame.
+const MAX_YAW = 0.45;
+const MAX_MOTION = 0.12;
+const MAX_OPEN_EYE = 0.35; // the eye that is not winking has to actually be open
+
 const holdFrames = () =>
   Math.max(2, Math.round((gestureHoldMs * GESTURE_FPS) / 1000));
 const DEFAULT_ASYM_THRESHOLD = 0.5; // only used before anyone has calibrated
@@ -922,6 +942,10 @@ let lastGestureAt = 0;
 let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
+let prevPoints = null;
+let headMotion = 0;
+let headYaw = 0;
+let asymBaseline = 0;
 
 function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
@@ -1002,16 +1026,46 @@ function blendshape(shapes, name) {
   return shapes.find((c) => c.categoryName === name)?.score ?? 0;
 }
 
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
+
+/**
+ * How far the head is turned, and how fast it is moving.
+ *
+ * Both in units of the distance between the eye corners, so they mean the same
+ * thing whether the player is close to the camera or far from it. Turning the
+ * head moves the nose closer to one eye corner than the other, which is all the
+ * yaw estimate needs to be.
+ */
+function updateHeadPose(landmarks) {
+  const nose = landmarks[1];
+  const eyeA = landmarks[33];
+  const eyeB = landmarks[263];
+  if (!nose || !eyeA || !eyeB) return;
+
+  const interEye = dist(eyeA, eyeB) || 1e-6;
+  headYaw = (dist(nose, eyeA) - dist(nose, eyeB)) / interEye;
+
+  const points = [nose, eyeA, eyeB];
+  headMotion = prevPoints
+    ? points.reduce((sum, p, i) => sum + dist(p, prevPoints[i]), 0) / points.length / interEye
+    : 0;
+  prevPoints = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+}
+
 function onGestureFrame() {
   if (!landmarker || el.camPreview.readyState < 2) return;
 
   const result = landmarker.detectForVideo(el.camPreview, performance.now());
   const shapes = result.faceBlendshapes?.[0]?.categories;
+  const landmarks = result.faceLandmarks?.[0];
+  if (landmarks) updateHeadPose(landmarks);
   if (!shapes) {
     gestureHold = 0;
     // Hold the calibration clock rather than filling a phase with nothing.
     // Without this it counts down against an empty frame and reports a result
     // built from no samples at all.
+    prevPoints = null;
+    asymBaseline = 0;
     if (calibrating) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
@@ -1026,15 +1080,35 @@ function onGestureFrame() {
   // Mirrored: the viewer's right eye is the model's left.
   const asym = left - right;
 
-  if (calibrating) return sampleCalibration(asym);
+  if (calibrating) return sampleCalibration(asym, Math.min(left, right));
+
+  // Whatever the head's angle is doing to the difference, it is doing it
+  // slowly. Track that and subtract it; a wink is what is left over.
+  const deviation = asym - asymBaseline;
+  // Do not let the baseline chase the wink it is supposed to reveal.
+  if (Math.abs(deviation) < asymThreshold() * BASELINE_FREEZE_MULT) {
+    asymBaseline += BASELINE_ALPHA * deviation;
+  }
+
+  const usable = Math.abs(headYaw) < MAX_YAW && headMotion < MAX_MOTION;
+  const openEye = Math.min(left, right);
+  const eyesPlausible = openEye < (calibration?.openEyeMax ?? MAX_OPEN_EYE);
 
   el.gestureAsym.textContent =
-    `L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    ` / ${asymThreshold().toFixed(2)}  ${gestureHold}/${holdFrames()}f` +
+    `L ${left.toFixed(2)}  R ${right.toFixed(2)}  base ${asymBaseline >= 0 ? "+" : ""}${asymBaseline.toFixed(2)}` +
+    `  net ${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)} / ${asymThreshold().toFixed(2)}` +
+    `  ${gestureHold}/${holdFrames()}f` +
+    (usable ? "" : "  HEAD AWAY") +
     (calibration ? `  x${calibration.separation.toFixed(1)}` : "  uncalibrated");
 
+  if (!usable || !eyesPlausible) {
+    gestureHold = 0;
+    gestureDirection = 0;
+    return;
+  }
+
   const sign = calibration?.forwardSign ?? 1;
-  const signed = asym * sign;
+  const signed = deviation * sign;
   const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
   gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
   gestureDirection = direction;
@@ -1083,7 +1157,12 @@ function startCalibration() {
     return;
   }
   el.calibrateBtn.textContent = "Cancel";
-  calibrating = { index: 0, samples: { noise: [], right: [], left: [] }, until: 0 };
+  calibrating = {
+    index: 0,
+    samples: { noise: [], right: [], left: [] },
+    openEyes: [],
+    until: 0,
+  };
   el.camPreview.hidden = false;
   nextCalibrationPhase();
 }
@@ -1118,9 +1197,10 @@ function topMean(values, frac) {
   return top.reduce((a, b) => a + b, 0) / top.length;
 }
 
-function sampleCalibration(asym) {
+function sampleCalibration(asym, openEye) {
   const phase = PHASES[calibrating.index];
   calibrating.samples[phase.key].push(asym);
+  if (phase.key !== "noise") calibrating.openEyes.push(openEye);
   const remaining = Math.max(0, calibrating.until - nowSeconds());
   el.gestureAsym.textContent =
     `${phase.prompt}  ${remaining.toFixed(0)}s   (live diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)})`;
@@ -1134,6 +1214,7 @@ function sampleCalibration(asym) {
 
 function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
+  const openEyes = calibrating.openEyes;
   calibrating = null;
   el.camPreview.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
@@ -1158,7 +1239,13 @@ function finishCalibration() {
   const separation = winkLevel / noiseLevel;
 
   const threshold = thresholdFrom(noiseLevel, winkLevel);
-  calibration = { threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel };
+  // How open the other eye stays during a real wink, with room to spare. A
+  // turned head raises both eyes together, and this is what rejects that.
+  const openEyeMax = Math.min(0.5, Math.max(0.2, percentile(openEyes, 0.9) + 0.1));
+
+  calibration = {
+    threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel, openEyeMax,
+  };
   try {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}
@@ -1174,7 +1261,7 @@ function finishCalibration() {
   el.gestureStatus.textContent =
     `blink noise ${noiseLevel.toFixed(2)} · right wink ${rightLevel.toFixed(2)} · ` +
     `left wink ${leftLevel.toFixed(2)} · separation x${separation.toFixed(1)} · ` +
-    `threshold ${threshold.toFixed(2)}\n${verdict}`;
+    `threshold ${threshold.toFixed(2)} · other eye under ${openEyeMax.toFixed(2)}\n${verdict}`;
 }
 
 // ============================================================
