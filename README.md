@@ -9,8 +9,8 @@ misses or turns at the wrong moment.
 
 **Status: automatic turning works, with no setup and nothing to hear first.**
 Open a score, press Start, play. Winking turns pages too — right eye forward,
-left eye back — though that half is unverified: it was written without a camera
-to test it on, which is what the calibration screen is for. See
+left eye back — after a calibration that measures the gesture on your own face
+and tells you plainly if it will not work there. See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.

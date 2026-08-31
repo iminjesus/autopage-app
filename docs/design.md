@@ -190,13 +190,17 @@ world, and a gesture that repeats every cooldown while the eye stays shut would
 turn several pages for one wink — so the eye has to open again before the next
 one counts.
 
-Two settings that both started too demanding, and were loosened against a real
-face: a deliberate wink lasts about 200ms, not the 400ms first asked for, and
-at 12 frames a second that is barely two frames to see it in. Sampling runs at
-20fps and a hold of 150ms is enough. The threshold sat halfway between blink
-noise and a full wink, which a quick wink never reaches because the eye does not
-fully close; a third of the way up still clears blink noise by two and a half
-times, and the asymmetry is what does the rejecting anyway.
+The threshold sat halfway between blink noise and a full wink, which a quick
+wink never reaches because the eye does not fully close. A third of the way up
+still clears blink noise by two and a half times, and the asymmetry is what does
+the rejecting anyway — the height of the bar was never doing that work.
+
+How long the wink must be held is a **setting**, not a constant. Two rounds of
+guessing at it from outside — 400ms, then 150ms — both came back too slow from
+the only place that can judge it, which is someone's actual face. Sampling runs
+at 30fps so the required length can go as low as two frames, and two frames is
+kept as the floor so a single glitched frame can never turn a page. The default
+is 70ms, which lands on that floor.
 
 Head nods and plain blinks are disqualified outright — musicians do both
 constantly. The gesture must be something that does not occur while playing,

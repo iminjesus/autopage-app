@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31e quick-wink";
+const BUILD = "2026-08-31f wink-length-setting";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -79,6 +79,7 @@ for (const id of [
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "startBtn", "leadInput", "diag",
   "gestureCheck", "camPreview", "gestureLive", "gestureAsym", "gestureStatus", "calibrateBtn",
+  "holdField", "holdInput",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -897,13 +898,18 @@ function captureTemplate() {
 // recovery path when a page turns at the wrong moment.
 // ============================================================
 
-// A deliberate wink lasts around 200ms, not the 400ms the first version asked
-// for, and at 12fps that is barely two frames to see it in. Sampling faster
-// costs little and is what makes a short gesture catchable at all.
-const GESTURE_FPS = 20;
-const GESTURE_HOLD_MS = 150;
-const GESTURE_HOLD_FRAMES = Math.max(2, Math.round((GESTURE_HOLD_MS * GESTURE_FPS) / 1000));
-const GESTURE_COOLDOWN_S = 1.2;
+// How long a wink lasts is personal, and it is not something that can be
+// settled from outside someone's face: two rounds of guessing at it both came
+// back too slow. Sampling runs fast enough that the required length is a
+// setting rather than a constant, and a run of two frames is kept as the floor
+// so a single glitched frame can never fire a turn.
+const GESTURE_FPS = 30;
+const GESTURE_COOLDOWN_S = 0.6;
+const HOLD_KEY = "autopage.winkHold";
+let gestureHoldMs = 70;
+
+const holdFrames = () =>
+  Math.max(2, Math.round((gestureHoldMs * GESTURE_FPS) / 1000));
 const DEFAULT_ASYM_THRESHOLD = 0.5; // only used before anyone has calibrated
 const CALIBRATION_KEY = "autopage.wink";
 
@@ -916,6 +922,12 @@ let lastGestureAt = 0;
 let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
+
+function loadHold() {
+  const stored = Number(localStorage.getItem(HOLD_KEY));
+  if (stored >= 50 && stored <= 400) gestureHoldMs = stored;
+  el.holdInput.value = String(gestureHoldMs);
+}
 
 function loadCalibration() {
   try {
@@ -968,6 +980,7 @@ async function startGesture() {
 
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
   el.gestureLive.hidden = false;
+  el.holdField.hidden = false;
 }
 
 function stopGesture() {
@@ -980,6 +993,7 @@ function stopGesture() {
   el.camPreview.srcObject = null;
   el.camPreview.hidden = true;
   el.gestureLive.hidden = true;
+  el.holdField.hidden = true;
   landmarker?.close();
   landmarker = null;
 }
@@ -1016,7 +1030,7 @@ function onGestureFrame() {
 
   el.gestureAsym.textContent =
     `L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    ` / ${asymThreshold().toFixed(2)}` +
+    ` / ${asymThreshold().toFixed(2)}  ${gestureHold}/${holdFrames()}f` +
     (calibration ? `  x${calibration.separation.toFixed(1)}` : "  uncalibrated");
 
   const sign = calibration?.forwardSign ?? 1;
@@ -1033,7 +1047,7 @@ function onGestureFrame() {
 
   if (
     !gestureLatched &&
-    gestureHold >= GESTURE_HOLD_FRAMES &&
+    gestureHold >= holdFrames() &&
     nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S
   ) {
     gestureHold = 0;
@@ -1383,6 +1397,14 @@ el.gestureCheck.addEventListener("change", async () => {
 
 el.calibrateBtn.addEventListener("click", startCalibration);
 
+el.holdInput.addEventListener("change", () => {
+  gestureHoldMs = Math.min(400, Math.max(50, Number(el.holdInput.value) || 70));
+  el.holdInput.value = String(gestureHoldMs);
+  try {
+    localStorage.setItem(HOLD_KEY, String(gestureHoldMs));
+  } catch {}
+});
+
 el.leadInput.addEventListener("change", () => {
   state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
   buildTemplates(); // the template ends where the lead says the page does
@@ -1429,6 +1451,7 @@ if ("serviceWorker" in navigator) {
 }
 
 loadCalibration();
+loadHold();
 render();
 window.__autopageReady = true;
 
