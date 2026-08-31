@@ -8,8 +8,9 @@ await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
 
 const run = (label, opts) =>
-  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz }) => {
+  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, mode = "wink" }) => {
     let gapL = gL, gapR = gR;
+    window.__autopage.setMode(mode);
     const A = window.__autopage;
     const before = A.state.page;
     // A face, made of the eleven points the app actually reads.
@@ -32,12 +33,25 @@ const run = (label, opts) =>
       m[33] = pt(R.x - 0.02, R.y);
       return m;
     };
-    const shapes = [{ categoryName: "eyeBlinkLeft", score: 0 }, { categoryName: "eyeBlinkRight", score: 0 }];
-    // Eyes open first: a wink only counts once the eye has reopened since the
-    // last one, so a test that jumps straight from wink to wink blocks itself.
+    const shapes = [
+      { categoryName: "eyeBlinkLeft", score: 0 },
+      { categoryName: "eyeBlinkRight", score: 0 },
+      { categoryName: "browInnerUp", score: brow > 0 ? brow : 0 },
+      { categoryName: "browDownLeft", score: brow < 0 ? -brow : 0 },
+      { categoryName: "browDownRight", score: brow < 0 ? -brow : 0 },
+    ];
+    // A neutral face first: a gesture only counts once it has been released
+    // since the last one, so a test that runs them back to back blocks itself.
+    const neutralShapes = [
+      { categoryName: "eyeBlinkLeft", score: 0 },
+      { categoryName: "eyeBlinkRight", score: 0 },
+      { categoryName: "browInnerUp", score: 0 },
+      { categoryName: "browDownLeft", score: 0 },
+      { categoryName: "browDownRight", score: 0 },
+    ];
     const openFace = (t) => { const save = [gapL, gapR]; gapL = gapR = 0.015;
       const f = face(t); [gapL, gapR] = save; return f; };
-    for (let t = 0; t < 8; t++) A.processFrame(openFace(t), shapes);
+    for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
     for (let t = 0; t < frames; t++) A.processFrame(face(t), shapes);
     return { label, from: before, to: A.state.page, turned: A.state.page !== before };
   }, { label, ...opts });
@@ -65,5 +79,21 @@ for (const [label, opts, want] of cases) {
   const r = await run(label, opts);
   console.log(`${r.turned === want ? "ok  " : "FAIL"} ${label.padEnd(28)} ${r.from}->${r.to}  (want ${want ? "a turn" : "no turn"})`);
 }
+console.log("--- eyebrows, for faces the eyelids do not work on");
+const browCases = [
+  ["relaxed face 2s",      { gapL: open, gapR: open, frames: 60, brow: 0.0,  mode: "brow" }, false],
+  ["brows raised 0.4s",    { gapL: open, gapR: open, frames: 12, brow: 0.7,  mode: "brow" }, true],
+  ["brows raised 0.1s",    { gapL: open, gapR: open, frames: 3,  brow: 0.7,  mode: "brow" }, false],
+  ["frown held 0.4s",      { gapL: open, gapR: open, frames: 12, brow: -0.7, mode: "brow" }, true],
+  ["slight brow movement", { gapL: open, gapR: open, frames: 60, brow: 0.2,  mode: "brow" }, false],
+  ["winking in brow mode", { gapL: open, gapR: shut, frames: 30, brow: 0.0,  mode: "brow" }, false],
+];
+for (const [label, opts, want] of browCases) {
+  await p.evaluate(() => { window.__autopage.state.page = 2; });
+  await p.waitForTimeout(700);
+  const r = await run(label, opts);
+  console.log(`${r.turned === want ? "ok  " : "FAIL"} ${label.padEnd(28)} ${r.from}->${r.to}  (want ${want ? "a turn" : "no turn"})`);
+}
+await p.evaluate(() => window.__autopage.setMode("wink"));
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

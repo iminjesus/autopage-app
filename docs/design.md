@@ -293,6 +293,27 @@ count, a wink that only half closes, a look down with both lids low, a head
 shake, and two seconds of nothing. It found the half-closed wink being rejected
 and, in its own first run, two mistakes in itself.
 
+### eyebrows, when the eyelids cannot be read
+
+Behind glasses the eyelid measure runs out. A lens rim sits exactly where the
+lid contour is and reflections wash out the lower lid, so the landmarks it
+depends on are obstructed rather than merely noisy — no threshold reaches past
+that, and calibrating with the glasses on only makes it intermittent.
+
+Brows are above the lenses. They are unobstructed, high contrast, and they do
+not move on their own while playing. Raising them turns forward and frowning
+turns back, which keeps the gesture bidirectional without needing left and right
+to be told apart.
+
+This one uses the model's expression scores rather than geometry, and that is
+consistent rather than contradictory: the scores failed for winking because they
+could not resolve *which* eye was closing. Both brows move together, so there is
+nothing to resolve — it is the case the scores are good at, and there is no
+reference to learn or drift.
+
+Which gesture is in use is a setting, and a calibration belongs to the gesture
+it was measured on: the panel says so rather than applying wink numbers to brows.
+
 ### calibration — the part that is not optional
 
 Thresholds cannot be constants. What a wink looks like through one person's

@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01g per-direction-limits";
+const BUILD = "2026-09-01h brows-for-glasses";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -51,7 +51,7 @@ for (const id of [
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
-  "holdField", "holdInput", "swapField", "swapInput",
+  "holdField", "holdInput", "swapField", "swapInput", "modeField", "modeInput",
   "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -362,6 +362,7 @@ let gestureHoldMs = 200;
 // been wrong about enough conventions in this project to deserve an override
 // that takes one click rather than another round trip.
 let swapEyes = false;
+let gestureMode = "wink"; // "wink" | "brow"
 
 // Head pose is measured but gates nothing. Turning the head hides part of one
 // eye and the model reports that as closing, which is where the false turns
@@ -394,6 +395,21 @@ const CALIBRATION_KEY = "autopage.wink";
 // so anything measured before this had a chance of being mirrored.
 const CALIBRATION_SCALE = "eyelid-v3";
 const SWAP_KEY = "autopage.winkSwap";
+const MODE_KEY = "autopage.gestureMode";
+
+// Eyebrows, for faces the eyelids do not work on.
+//
+// A lens rim sits exactly where the lid contour is and reflections wash out the
+// lower lid, so eyelid geometry is at its limit behind glasses — that is not a
+// threshold that can be tuned, it is the measurement being obstructed. Brows
+// are above the lenses, unobstructed, high contrast, and they do not move on
+// their own while playing.
+//
+// These come from the model's own expression scores rather than from geometry.
+// The scores failed for winking because they could not resolve which eye was
+// closing; raising both brows needs no such resolution, which is the case they
+// are good at.
+const BROW_THRESHOLD = 0.35;
 
 let landmarker = null;
 let camStream = null;
@@ -501,6 +517,9 @@ function loadHold() {
 
   swapEyes = localStorage.getItem(SWAP_KEY) === "1";
   el.swapInput.checked = swapEyes;
+
+  gestureMode = localStorage.getItem(MODE_KEY) === "brow" ? "brow" : "wink";
+  el.modeInput.checked = gestureMode === "brow";
 }
 
 function loadCalibration() {
@@ -565,6 +584,7 @@ async function startGesture() {
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
   el.holdField.hidden = false;
   el.swapField.hidden = false;
+  el.modeField.hidden = false;
 }
 
 function stopGesture() {
@@ -578,6 +598,7 @@ function stopGesture() {
   el.camPreview.hidden = true;
   el.holdField.hidden = true;
   el.swapField.hidden = true;
+  el.modeField.hidden = true;
   landmarker?.close();
   landmarker = null;
 }
@@ -614,6 +635,12 @@ function minAbsDiff() {
   // glasses, and a gate that assumes it does blocks every wink on a face where
   // it does not.
   return calibration?.minAbsDiff ?? MIN_ABS_DIFF;
+}
+
+function browDirection(signal) {
+  const towards = signal > 0 ? 1 : -1;
+  const threshold = calibration?.brow?.[towards > 0 ? "forward" : "back"] ?? BROW_THRESHOLD;
+  return Math.abs(signal) > threshold ? towards : 0;
 }
 
 function winkDirection(signedAsym, absDiff) {
@@ -689,6 +716,19 @@ function eyeOf(landmarks, points) {
  *
  * @returns {{asym: number, openL: number, openR: number}|null}
  */
+/**
+ * Brow position as one signed number: up is forward, furrowed is back.
+ *
+ * Both brows move together, so there is no left and right to tell apart and no
+ * reference to learn — the scores are already relative to a neutral face.
+ */
+function browSignal(shapes) {
+  const up = blendshape(shapes, "browInnerUp");
+  const down =
+    (blendshape(shapes, "browDownLeft") + blendshape(shapes, "browDownRight")) / 2;
+  return up - down;
+}
+
 function eyeSignal(landmarks) {
   const a = eyeOf(landmarks, EYE_A);
   const b = eyeOf(landmarks, EYE_B);
@@ -798,7 +838,10 @@ function processFrame(landmarks, shapes) {
   // face instead of argued about.
   const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
-  if (calibrating) return sampleCalibration(asym, Math.abs(asym), absDiff);
+  if (calibrating) {
+    const value = gestureMode === "brow" ? browSignal(shapes) : asym;
+    return sampleCalibration(value, Math.abs(value), gestureMode === "brow" ? 1 : absDiff);
+  }
 
   // Back to judging the raw difference between the eyes.
   //
@@ -835,7 +878,10 @@ function processFrame(landmarks, shapes) {
     return;
   }
 
-  const direction = winkDirection(signed, absDiff);
+  const direction =
+    gestureMode === "brow"
+      ? browDirection(browSignal(shapes))
+      : winkDirection(signed, absDiff);
 
   recent.push(direction);
   while (recent.length > holdWindow()) recent.shift();
@@ -874,11 +920,17 @@ function processFrame(landmarks, shapes) {
 // another's, and the only honest way to know whether this works for someone is
 // to measure it on their face and show them the number.
 
-const PHASES = [
+const WINK_PHASES = [
   { key: "noise", seconds: 6, prompt: "Look at the camera and blink normally." },
   { key: "right", seconds: 6, prompt: "Wink your RIGHT eye and hold. Repeat a few times." },
   { key: "left", seconds: 6, prompt: "Wink your LEFT eye and hold. Repeat a few times." },
 ];
+const BROW_PHASES = [
+  { key: "noise", seconds: 6, prompt: "Look at the camera with a relaxed face." },
+  { key: "right", seconds: 6, prompt: "RAISE your eyebrows and hold. Repeat a few times." },
+  { key: "left", seconds: 6, prompt: "FROWN — brows down — and hold. Repeat a few times." },
+];
+const phases = () => (gestureMode === "brow" ? BROW_PHASES : WINK_PHASES);
 
 function setCardMessage(text) {
   el.gestureStatus.hidden = !text;
@@ -918,7 +970,7 @@ function startCalibration() {
 }
 
 function nextCalibrationPhase() {
-  const phase = PHASES[calibrating.index];
+  const phase = phases()[calibrating.index];
   calibrating.until = nowSeconds() + phase.seconds;
   setCardMessage(phase.prompt);
 }
@@ -947,7 +999,7 @@ function topMean(values, frac) {
 }
 
 function sampleCalibration(asym, closedEye, absDiff) {
-  const phase = PHASES[calibrating.index];
+  const phase = phases()[calibrating.index];
   calibrating.samples[phase.key].push(asym);
   if (phase.key !== "noise") {
     calibrating.eyePeaks[phase.key] = Math.max(calibrating.eyePeaks[phase.key], closedEye);
@@ -960,7 +1012,7 @@ function sampleCalibration(asym, closedEye, absDiff) {
   if (remaining > 0) return;
 
   calibrating.index += 1;
-  if (calibrating.index < PHASES.length) return nextCalibrationPhase();
+  if (calibrating.index < phases().length) return nextCalibrationPhase();
 
   finishCalibration();
 }
@@ -1029,8 +1081,20 @@ function finishCalibration() {
   const gapPeak = Math.min(gapPeaks.right, gapPeaks.left);
   const gate = Math.max(0.006, Math.min(0.02, gapPeak * 0.4));
 
+  // Brow scores are already normalised, so the levels are the thresholds; only
+  // the shape of the measurement differs, not the procedure.
+  const brow =
+    gestureMode === "brow"
+      ? {
+          forward: Math.max(0.15, (noiseLevel + forward.level) / 2),
+          back: Math.max(0.15, (noiseLevel + back.level) / 2),
+        }
+      : calibration?.brow;
+
   calibration = {
     scale: CALIBRATION_SCALE,
+    mode: gestureMode,
+    brow,
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
     minAbsDiff: gate, gapPeak, forward, back,
     savedAt: new Date().toISOString().slice(0, 10),
@@ -1199,6 +1263,19 @@ el.allowBtn.addEventListener("click", beginWatching);
 
 el.calibrateBtn.addEventListener("click", startCalibration);
 
+el.modeInput.addEventListener("change", () => {
+  gestureMode = el.modeInput.checked ? "brow" : "wink";
+  try {
+    localStorage.setItem(MODE_KEY, gestureMode);
+  } catch {}
+  // The two are measured on different scales, so a calibration for one says
+  // nothing about the other.
+  el.calibStatus.textContent =
+    calibration?.mode === gestureMode
+      ? "Calibrated for this gesture."
+      : "Not calibrated for this gesture — press Calibrate.";
+});
+
 el.swapInput.addEventListener("change", () => {
   swapEyes = el.swapInput.checked;
   try {
@@ -1267,6 +1344,7 @@ window.__autopage = {
   get requiredVotes() { return requiredVotes(); },
   get holdWindow() { return holdWindow(); },
   processFrame,
+  setMode(mode) { gestureMode = mode === "brow" ? "brow" : "wink"; },
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
 };
