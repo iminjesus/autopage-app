@@ -184,11 +184,23 @@ blink scores. The blink scores were the first attempt and they do not resolve
 which eye is closing: on a real face, winking moved both scores up together and
 the difference peaked at 0.09 while each score reached 0.5. No threshold
 survives a signal that small, and several rounds were spent tuning against it.
-The lid landmarks have no such ambiguity — the gap between the lids over the
-width of the eye is a distance, near 0.3 open and near 0.05 shut, and one eye's
-gap closing while the other's does not is unambiguous. What counts as open is
-learned per eye rather than assumed, since it varies with the person, the
-camera and the glasses. That is what makes it survive
+The lid landmarks have no such ambiguity — the gap between the lids is a
+distance, and one eye's gap closing while the other's does not is unambiguous.
+What counts as open is learned per eye rather than assumed, since it varies with
+the person, the camera and the glasses.
+
+**What the gap is measured against matters.** Dividing by the eye's own width is
+the obvious choice and it fails under head rotation: yaw foreshortens horizontal
+distances, so the far eye's width shrinks while its lid gap does not, and the
+ratio climbs with no eyelid having moved — at 30° that is a 15% error, enough to
+land a page turn on turning away and back. Rotating about a vertical axis leaves
+vertical distances alone, so the face's own height from forehead to chin is used
+instead: it survives yaw and still tracks distance from the camera.
+
+Past a quarter turn the far eye's landmarks are guesswork whatever the scale, so
+nothing acts on them — and the learned open-reference stops updating too, since
+a reference learned from bad geometry stays wrong long after the head comes
+back. Nobody reads a score from that angle, so nothing is lost. That is what makes it survive
 the conditions that break absolute measures — glasses reflecting the screen,
 stage lighting, someone squinting at a hard passage — because all of those
 affect both eyes together and cancel out of a difference.

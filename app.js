@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31p calibration-save-load-agree";
+const BUILD = "2026-08-31q yaw-invariant-eye";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -954,6 +954,7 @@ let yawSwing = 0;
 // slowly enough that little of it lands inside a 150ms window; a shake is
 // mostly travel.
 const MAX_YAW_SWING = 0.12; // inter-eye widths of yaw travel within ~150ms
+const MAX_YAW = 0.25; // head turned this far off centre: eye geometry unreliable
 // A 30fps readout cannot be read by eye, so the peaks are held. Without this
 // there is no way to tell "the model never sees the eye close" apart from
 // "the threshold is wrong", and both have been guessed at for several rounds.
@@ -1100,23 +1101,44 @@ const EYE_POINTS = {
   right: [159, 145, 133, 33],
 };
 
-/** Lid gap over eye width — near 0.3 open, near 0.05 shut. */
+// Midline points, top of the forehead to the bottom of the chin.
+const FACE_TOP = 10;
+const FACE_BOTTOM = 152;
+
+/**
+ * Lid gap, scaled so that turning the head does not change it.
+ *
+ * Dividing by the eye's own width — the obvious choice — fails exactly where
+ * this was reported failing: yaw foreshortens horizontal distances, so the far
+ * eye's width shrinks while its lid gap does not, and the ratio climbs with
+ * nobody having moved an eyelid. Turning away and back then lands a page turn.
+ *
+ * Rotating about a vertical axis leaves vertical distances alone, so the face's
+ * own height is a scale that survives it, and it tracks distance from the
+ * camera the same way the eye width did.
+ */
 function aspectRatio(landmarks, which) {
-  const [up, low, inner, outer] = EYE_POINTS[which].map((i) => landmarks[i]);
-  if (!up || !low || !inner || !outer) return null;
-  const width = dist(inner, outer);
-  return width > 0 ? dist(up, low) / width : null;
+  const [up, low] = EYE_POINTS[which].map((i) => landmarks[i]);
+  const top = landmarks[FACE_TOP];
+  const bottom = landmarks[FACE_BOTTOM];
+  if (!up || !low || !top || !bottom) return null;
+  const height = dist(top, bottom);
+  return height > 0 ? dist(up, low) / height : null;
 }
 
 // The open-eye ratio differs per person, per camera and per pair of glasses, so
 // it is learned rather than assumed: the widest recently seen counts as open.
-const openRef = { left: 0.3, right: 0.3 };
+const openRef = { left: 0.045, right: 0.045 };
 
-function closedness(landmarks, which) {
+function closedness(landmarks, which, poseReliable) {
   const ear = aspectRatio(landmarks, which);
   if (ear === null) return 0;
-  openRef[which] = Math.max(ear, openRef[which] * 0.999 + ear * 0.001);
-  const ref = Math.max(openRef[which], 0.1);
+  // A reference learned while the head was turned away is a reference learned
+  // from bad geometry, and it stays wrong long after the head comes back.
+  if (poseReliable) {
+    openRef[which] = Math.max(ear, openRef[which] * 0.999 + ear * 0.001);
+  }
+  const ref = Math.max(openRef[which], 0.015);
   return Math.min(1, Math.max(0, 1 - ear / ref));
 }
 
@@ -1184,8 +1206,11 @@ function gestureFrame() {
     return;
   }
 
-  const left = landmarks ? closedness(landmarks, "left") : 0;
-  const right = landmarks ? closedness(landmarks, "right") : 0;
+  // Far enough round and the far eye's landmarks are guesswork. Nobody reads a
+  // score from there either, so nothing is lost by declining to act on it.
+  const poseReliable = Math.abs(headYaw) < MAX_YAW;
+  const left = landmarks ? closedness(landmarks, "left", poseReliable) : 0;
+  const right = landmarks ? closedness(landmarks, "right", poseReliable) : 0;
   const asym = left - right;
 
   // Kept only to show alongside, so the two measures can be compared on a real
@@ -1204,14 +1229,15 @@ function gestureFrame() {
   // because there was no way to see that happening.
   //
   // Movement still needs an answer. It will be a measured one this time.
-  const shaking = yawSwing > MAX_YAW_SWING;
+  const shaking = yawSwing > MAX_YAW_SWING || !poseReliable;
 
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    `  ${gestureHold}/${holdFrames()}f${shaking ? "  SHAKING" : ""}\n` +
+    `  ${gestureHold}/${holdFrames()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  diff ${peaks.net.toFixed(2)} ` +
-    `/ ${asymThreshold().toFixed(2)}   swing ${yawSwing.toFixed(2)} / ${MAX_YAW_SWING}` +
+    `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
+    ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
     `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
 
   if (shaking) {
