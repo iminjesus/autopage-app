@@ -185,10 +185,20 @@ after the fact, without anyone having to catch it happening.
 
 ### what the player sees
 
-The page number, the mode, and a dot that appears while the detector is
-listening for this page's ending. That is all.
+The score, the page number, and a Setup chip in the corner. That is all.
 
-There was a countdown — "3 bars left" — and it was worse than useless. A number
+Everything else is off screen until it is asked for. Calibration is not a thing
+that happens each session — it is done once, and it belongs behind the chip with
+the settings and the diagnostics. Live numbers over the score are for debugging
+a detector, and reading them is not what anyone opened the app to do.
+
+The one exception is the calibration prompts themselves, which appear at the
+top edge while calibrating and nowhere else. That position is not decoration:
+the camera is up there, and a prompt in the bottom corner asks the player to
+look away from the lens at the moment the gesture is being measured.
+
+An earlier version put a countdown over the score — "3 bars left" — and it was
+worse than useless. A number
 ticking down in the corner is something to watch, and the one thing a player
 must not be doing mid-piece is watching the app. It also described the schedule,
 which is no longer what turns the page, so it invited exactly the wrong mental

@@ -159,7 +159,6 @@ async function openScore(file) {
   el.hud.hidden = false;
   el.nav.hidden = false;
   el.setupPanel.hidden = false;
-  collapseSetup(false); // rehearsal is the next thing to do, so keep it open
 
   await showPage(1);
   render();
@@ -808,6 +807,12 @@ const PHASES = [
 function setCardMessage(text) {
   el.gestureStatus.hidden = !text;
   el.gestureStatus.textContent = text || "";
+  showWatch();
+}
+
+/** The card exists only while it has a prompt, a preview, or a problem. */
+function showWatch() {
+  el.watch.hidden = el.gestureStatus.hidden && el.camPreview.hidden && el.allowBtn.hidden;
 }
 
 function startCalibration() {
@@ -817,11 +822,13 @@ function startCalibration() {
     calibrating = null;
     el.camPreview.hidden = true;
     setCardMessage("");
+    showWatch();
     el.calibrateBtn.textContent = "Calibrate";
     showCalibrationState();
     return;
   }
   el.calibrateBtn.textContent = "Cancel";
+  collapseSetup(false); // the countdown and the result are worth seeing
   calibrating = {
     index: 0,
     samples: { noise: [], right: [], left: [] },
@@ -829,6 +836,7 @@ function startCalibration() {
     until: 0,
   };
   el.camPreview.hidden = false;
+  showWatch();
   nextCalibrationPhase();
 }
 
@@ -885,6 +893,7 @@ function finishCalibration() {
   calibrating = null;
   el.camPreview.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
+  showWatch();
 
   // Blinks are symmetric, so their asymmetry is the noise this has to clear.
   const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
@@ -1033,7 +1042,6 @@ function loadFile(file) {
     return;
   }
   openScore(file)
-    .then(() => collapseSetup(false))
     .catch((err) => {
       console.error("failed to open score:", err);
       showError(`Could not open ${file.name} — ${err.message}`);
@@ -1070,6 +1078,7 @@ el.prevBtn.addEventListener("click", () => {
 async function beginWatching() {
   el.allowBtn.hidden = true;
   setCardMessage("");
+  showWatch();
   try {
     await startGesture();
     showCalibrationState();
@@ -1143,6 +1152,7 @@ if ("serviceWorker" in navigator) {
 loadCalibration();
 loadHold();
 showCalibrationState();
+collapseSetup(true); // nothing but the score, until someone asks for more
 render();
 beginWatching();
 window.__autopageReady = true;

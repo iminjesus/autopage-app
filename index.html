@@ -46,14 +46,10 @@
       <button class="nav-btn" id="nextBtn" aria-label="Next page">›</button>
     </div>
 
-    <!-- Camera and calibration, kept near the top edge: that is where the
-         camera is, and reading a prompt in the far corner means looking away
-         from the lens at the moment the gesture is being measured. -->
-    <section class="watch" id="watch">
-      <div class="watch-row">
-        <span id="gestureAsym" class="watch-live">Starting the camera…</span>
-        <button id="calibrateBtn" class="btn btn-secondary btn-small">Calibrate</button>
-      </div>
+    <!-- Shown only while calibrating, or when the camera cannot start. Kept at
+         the top because that is where the lens is: a prompt in the corner asks
+         the player to look away at the moment the gesture is being measured. -->
+    <section class="watch" id="watch" hidden>
       <video id="camPreview" class="cam" playsinline muted hidden></video>
       <div class="trainer-status" id="gestureStatus" hidden></div>
       <button id="allowBtn" class="btn btn-primary btn-block" hidden>Allow camera</button>
@@ -72,6 +68,8 @@
           runs locally and nothing leaves this device.
         </p>
 
+        <button id="calibrateBtn" class="btn btn-secondary btn-block">Calibrate</button>
+
         <label class="field" id="holdField" hidden>
           <span>Wink length (ms)</span>
           <input type="number" id="holdInput" min="50" max="400" step="10" value="70" />
@@ -83,6 +81,7 @@
         </label>
 
         <div class="trainer-status" id="calibStatus"></div>
+        <div class="diag" id="gestureAsym"></div>
         <div class="trainer-status" id="setupStatus">Open a score to begin.</div>
         <div class="diag" id="diag"></div>
       </div>

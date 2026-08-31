@@ -347,28 +347,18 @@ body {
   padding: 10px 12px;
 }
 
-.watch-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.watch-live {
-  flex: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--muted);
-  white-space: pre-line;
-}
-
-.watch-settings .field {
-  margin-top: 8px;
-  margin-bottom: 0;
-}
-
 .watch .trainer-status {
-  margin-top: 8px;
+  margin: 0;
+}
+
+/* Collapsed, the panel is a title bar and nothing else — the score is what the
+   player is looking at, and everything here is only wanted occasionally. */
+.panel.collapsed {
+  width: auto;
+}
+
+.panel.collapsed .panel-head {
+  padding: 10px 14px;
 }
 
 .gesture {
