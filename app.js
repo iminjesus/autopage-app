@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31i peak-hold";
+const BUILD = "2026-08-31j reverted-to-raw";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -908,25 +908,12 @@ const GESTURE_COOLDOWN_S = 0.6;
 const HOLD_KEY = "autopage.winkHold";
 let gestureHoldMs = 70;
 
-// Turning the head hides part of one eye from the camera and the model reports
-// that as the eye closing, so the difference between the eyes rises without
-// anyone having winked. Refusing to look while the head moves is the wrong
-// answer — a musician moves constantly, and a gesture that only works while
-// sitting rigidly is not a gesture. What separates the two is speed: a head
-// turn drifts over a second or more, a wink is a spike. So the baseline is
-// tracked and subtracted, and only what the baseline cannot follow counts.
-// Swept against simulated head turns, swaying, and winks of 80 and 160ms: at
-// 0.3s the baseline follows a turn away in a tenth of a second's worth of
-// signal while leaving a wink untouched, and the freeze stops it chasing
-// anything above one and a half times the threshold.
-const BASELINE_TAU_S = 0.3;
-const BASELINE_ALPHA = 1 - Math.exp(-1 / (30 * BASELINE_TAU_S));
-const BASELINE_FREEZE_MULT = 1.5;
-// The baseline does the real work, so these only exclude a head turned right
-// away from the score or a movement violent enough to blur the frame.
-const MAX_YAW = 0.45;
-const MAX_MOTION = 0.12;
-const MAX_OPEN_EYE = 0.35; // the eye that is not winking has to actually be open
+// Head pose is measured but gates nothing. Turning the head hides part of one
+// eye and the model reports that as closing, which is where the false turns
+// come from — but two attempts to correct for it were designed against
+// guesses rather than against a real face, and both made things worse. It is
+// displayed instead, so the correction can be built from what actually
+// happens rather than from what seemed likely.
 
 const holdFrames = () =>
   Math.max(2, Math.round((gestureHoldMs * GESTURE_FPS) / 1000));
@@ -945,7 +932,6 @@ let calibrating = null; // {phase, samples, until}
 let prevPoints = null;
 let headMotion = 0;
 let headYaw = 0;
-let asymBaseline = 0;
 // A 30fps readout cannot be read by eye, so the peaks are held. Without this
 // there is no way to tell "the model never sees the eye close" apart from
 // "the threshold is wrong", and both have been guessed at for several rounds.
@@ -972,6 +958,10 @@ function loadCalibration() {
   try {
     const raw = localStorage.getItem(CALIBRATION_KEY);
     calibration = raw ? JSON.parse(raw) : null;
+    if (calibration && Math.min(calibration.rightLevel ?? 0, calibration.leftLevel ?? 0) < 0.3) {
+      calibration = null; // measured from noise, not from a wink
+      localStorage.removeItem(CALIBRATION_KEY);
+    }
     if (calibration?.noiseLevel && calibration?.rightLevel && calibration?.leftLevel) {
       calibration.threshold = thresholdFrom(
         calibration.noiseLevel,
@@ -1080,7 +1070,6 @@ function onGestureFrame() {
     // Without this it counts down against an empty frame and reports a result
     // built from no samples at all.
     prevPoints = null;
-    asymBaseline = 0;
     if (calibrating) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
@@ -1095,35 +1084,27 @@ function onGestureFrame() {
   // Mirrored: the viewer's right eye is the model's left.
   const asym = left - right;
 
-  if (calibrating) return sampleCalibration(asym, Math.min(left, right), Math.max(left, right));
+  if (calibrating) return sampleCalibration(asym, Math.max(left, right));
 
-  // Whatever the head's angle is doing to the difference, it is doing it
-  // slowly. Track that and subtract it; a wink is what is left over.
-  const deviation = asym - asymBaseline;
-  // Do not let the baseline chase the wink it is supposed to reveal.
-  if (Math.abs(deviation) < asymThreshold() * BASELINE_FREEZE_MULT) {
-    asymBaseline += BASELINE_ALPHA * deviation;
-  }
-
-  const usable = Math.abs(headYaw) < MAX_YAW && headMotion < MAX_MOTION;
-  const openEye = Math.min(left, right);
-  const eyesPlausible = openEye < (calibration?.openEyeMax ?? MAX_OPEN_EYE);
-
-  notePeaks(left, right, deviation);
+  // Back to judging the raw difference between the eyes.
+  //
+  // Two attempts to handle head movement on top of this went in and came
+  // straight back out: refusing frames while the head moved, and subtracting a
+  // slow baseline. The first would have made the gesture unusable, and the
+  // second was tuned against simulated signals rather than a real face — it
+  // absorbed the wink along with the movement, and the readout below is here
+  // because there was no way to see that happening.
+  //
+  // Movement still needs an answer. It will be a measured one this time.
+  notePeaks(left, right, asym);
   el.gestureAsym.textContent =
-    `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  net ${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)}` +
-    `  ${gestureHold}/${holdFrames()}f${usable ? "" : "  HEAD AWAY"}\n` +
-    `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  net ${peaks.net.toFixed(2)} ` +
-    `/ ${asymThreshold().toFixed(2)}   (3s window)`;
-
-  if (!usable || !eyesPlausible) {
-    gestureHold = 0;
-    gestureDirection = 0;
-    return;
-  }
+    `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
+    `  ${gestureHold}/${holdFrames()}f\n` +
+    `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  diff ${peaks.net.toFixed(2)} ` +
+    `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}  move ${headMotion.toFixed(3)}`;
 
   const sign = calibration?.forwardSign ?? 1;
-  const signed = deviation * sign;
+  const signed = asym * sign;
   const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
   gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
   gestureDirection = direction;
@@ -1176,7 +1157,6 @@ function startCalibration() {
     index: 0,
     samples: { noise: [], right: [], left: [] },
     eyePeaks: { right: 0, left: 0 },
-    openEyes: [],
     until: 0,
   };
   el.camPreview.hidden = false;
@@ -1213,11 +1193,10 @@ function topMean(values, frac) {
   return top.reduce((a, b) => a + b, 0) / top.length;
 }
 
-function sampleCalibration(asym, openEye, closedEye) {
+function sampleCalibration(asym, closedEye) {
   const phase = PHASES[calibrating.index];
   calibrating.samples[phase.key].push(asym);
   if (phase.key !== "noise") {
-    calibrating.openEyes.push(openEye);
     calibrating.eyePeaks[phase.key] = Math.max(calibrating.eyePeaks[phase.key], closedEye);
   }
   const remaining = Math.max(0, calibrating.until - nowSeconds());
@@ -1233,7 +1212,6 @@ function sampleCalibration(asym, openEye, closedEye) {
 
 function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
-  const openEyes = calibrating.openEyes;
   const eyePeaks = calibrating.eyePeaks;
   calibrating = null;
   el.camPreview.hidden = true;
@@ -1259,27 +1237,26 @@ function finishCalibration() {
   const separation = winkLevel / noiseLevel;
 
   const threshold = thresholdFrom(noiseLevel, winkLevel);
-  // How open the other eye stays during a real wink, with room to spare. A
-  // turned head raises both eyes together, and this is what rejects that.
-  const openEyeMax = Math.min(0.5, Math.max(0.2, percentile(openEyes, 0.9) + 0.1));
-
-  calibration = {
-    threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel, openEyeMax,
-  };
-  try {
-    localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
-  } catch {}
-
-  // If the eye never registers as closed, no threshold can help: the model is
-  // not seeing the gesture, and every knob downstream is beside the point.
+  // If the eye never registers as closed, the model is not seeing the gesture
+  // and every knob downstream is beside the point. A result like that must not
+  // be stored, or the app spends the rest of the session obeying it — which is
+  // what a threshold of 0.15 from a wink measured at 0.10 amounted to.
   const closedPeak = Math.max(eyePeaks.right, eyePeaks.left);
   if (closedPeak < 0.5) {
     el.gestureStatus.textContent =
       `The eye never reads as closed — peak ${closedPeak.toFixed(2)}, expected above 0.8.\n` +
       "The face model is not seeing the wink at all, so no threshold will help. " +
-      "Try more light on your face, or move closer to the camera, then calibrate again.";
+      "More light on your face, or moving closer to the camera, is what to try. " +
+      "Nothing was saved.";
     return;
   }
+
+  calibration = {
+    threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
+  };
+  try {
+    localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
+  } catch {}
 
   const verdict =
     separation >= 2.5
@@ -1292,8 +1269,7 @@ function finishCalibration() {
   el.gestureStatus.textContent =
     `blink noise ${noiseLevel.toFixed(2)} · right wink ${rightLevel.toFixed(2)} · ` +
     `left wink ${leftLevel.toFixed(2)} · separation x${separation.toFixed(1)} · ` +
-    `threshold ${threshold.toFixed(2)} · other eye under ${openEyeMax.toFixed(2)} · ` +
-    `eye closed to ${closedPeak.toFixed(2)}\n${verdict}`;
+    `threshold ${threshold.toFixed(2)} · eye closed to ${closedPeak.toFixed(2)}\n${verdict}`;
 }
 
 // ============================================================

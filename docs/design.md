@@ -206,6 +206,37 @@ Head nods and plain blinks are disqualified outright — musicians do both
 constantly. The gesture must be something that does not occur while playing,
 and a unilateral eye closure is almost always deliberate.
 
+**Movement is still unsolved.** Turning the head hides part of one eye from the
+camera and the model reports that as the eye closing, so the difference rises
+with nobody having winked, and ordinary swaying turns pages.
+
+Two corrections were tried and both were removed. Ignoring frames while the head
+moved would have made the gesture unusable — a musician moves constantly.
+Subtracting a slow baseline was tuned against simulated head turns and simulated
+winks, and against a real face it absorbed the wink along with the movement:
+the net signal sat at 0.00 while a wink was in progress.
+
+The common fault is that both were designed against a guess at the signal
+rather than the signal. What is in place now is instrumentation — held peaks
+for each eye and the difference, plus head yaw and per-frame motion, none of
+which gate anything. The next attempt gets built from what those show.
+
+The threshold sat halfway between blink noise and a full wink, which a quick
+wink never reaches because the eye does not fully close. A third of the way up
+still clears blink noise by two and a half times, and the asymmetry is what does
+the rejecting anyway — the height of the bar was never doing that work.
+
+How long the wink must be held is a **setting**, not a constant. Two rounds of
+guessing at it from outside — 400ms, then 150ms — both came back too slow from
+the only place that can judge it, which is someone's actual face. Sampling runs
+at 30fps so the required length can go as low as two frames, and two frames is
+kept as the floor so a single glitched frame can never turn a page. The default
+is 70ms, which lands on that floor.
+
+Head nods and plain blinks are disqualified outright — musicians do both
+constantly. The gesture must be something that does not occur while playing,
+and a unilateral eye closure is almost always deliberate.
+
 **Movement is subtracted, not refused.** Turning the head hides part of one eye
 from the camera and the model reports that as the eye closing, so the difference
 rises with nobody having winked — which had ordinary swaying turning pages. The
