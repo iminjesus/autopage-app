@@ -21,6 +21,10 @@
  * See docs/design.md.
  */
 
+// Shown on screen so a bug report can name the build it came from, rather than
+// leaving "did the pull actually take?" as an open question.
+const BUILD = "2026-08-31c match-required";
+
 import * as pdfjsLib from "./vendor/pdf.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
@@ -36,6 +40,7 @@ const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
 const ARM_WINDOW_S = 3.5; // floor for the detection window, either side
 const ARM_WINDOW_FRACTION = 0.15; // widen it for a performance taken off-tempo
 const TONALITY_MIN = 0.55; // measured: hiss and hum reach 0.40, played notes 0.94
+const TONAL_RUN = 3; // frames of held pitch before it counts as a note (300ms)
 const SILENCE_HOLD_S = 1.0; // silence shorter than this is a rest, not a stop
 const MIN_HZ = 70;
 const MAX_HZ = 5000;
@@ -72,7 +77,7 @@ const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
-  "setupPanel", "setupToggle", "startBtn", "leadInput",
+  "setupPanel", "setupToggle", "startBtn", "leadInput", "diag",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -629,6 +634,7 @@ let featureTimer = null;
 let spectrum = null;
 let silentSince = null;
 let heardAnything = false;
+let tonalRun = 0;
 const chromaLog = []; // {t, c: Float32Array(12)}, oldest first
 
 /**
@@ -648,7 +654,12 @@ function updatePlaying(chroma) {
   let peak = 0;
   for (let i = 0; i < 12; i++) if (chroma[i] > peak) peak = chroma[i];
 
-  const tonal = peak > TONALITY_MIN;
+  // Random noise lands on one pitch class often enough to clear the threshold
+  // for a single frame. A played note holds for hundreds of milliseconds, so
+  // requiring a run of frames separates them without touching the threshold.
+  tonalRun = peak > TONALITY_MIN ? tonalRun + 1 : 0;
+  const tonal = tonalRun >= TONAL_RUN;
+
   if (tonal) {
     silentSince = null;
     heardAnything = true;
@@ -939,6 +950,21 @@ function fallBackToManual(reason) {
   setStatus(`Auto off — ${reason}.`);
 }
 
+function renderDiag() {
+  const pages = [...state.measures.entries()]
+    .map(([n, m]) => `${m ?? "?"}${state.templates.has(n) ? "" : "!"}`)
+    .join(" ");
+  const flag = (on, label) => (on ? `<b>${label}</b>` : label);
+  el.diag.innerHTML = [
+    `build ${BUILD}`,
+    `bars/page ${pages || "—"}   (! = no template, turns on time)`,
+    `mic ${analyser ? "on" : "OFF"}   tonality ${state.tonality.toFixed(2)} / ${TONALITY_MIN}   ` +
+      `${flag(state.playing, "playing")}   ${flag(state.started, "started")}`,
+    `match ${state.confidence.toFixed(2)} / ${MATCH_THRESHOLD}   ` +
+      `${flag(state.armed, "armed")}   last turn: ${state.turnedBy || "—"}`,
+  ].join("\n");
+}
+
 function setStatus(text) {
   el.setupStatus.textContent = text;
 }
@@ -970,6 +996,7 @@ function render() {
   if (state.mode === "auto" && state.turnedBy) {
     el.hudMode.textContent = state.turnedBy === "audio" ? "Auto · heard" : "Auto · clock";
   }
+  renderDiag();
   el.startBtn.textContent = state.mode === "auto" ? "Stop" : "Start";
   el.startBtn.disabled = !state.doc || !state.measures.get(1);
 }
@@ -985,6 +1012,7 @@ async function startAuto() {
 
   state.mode = "auto";
   heardAnything = false;
+  tonalRun = 0;
   silentSince = null;
   collapseSetup(true); // it covers the score, and there is nothing left to set
   turnTo(1);

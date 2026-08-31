@@ -90,6 +90,10 @@ across the twelve pitch classes, so its chroma is flat: measured at 0.40 for
 hiss and hum against 0.94 for played notes, where a perfectly flat vector is
 0.29. The threshold sits at 0.55.
 
+Random noise lands on one pitch class often enough to clear any threshold for a
+single frame, so a note must hold for three frames — 300ms — to count. A played
+note lasts far longer than that; a spike in hiss does not.
+
 Silence shorter than a second is a rest, not a stop — but only after something
 has actually sounded, or the grace period itself starts the clock in an empty
 room.

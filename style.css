@@ -324,6 +324,20 @@ body {
   margin-bottom: 2px;
 }
 
+.diag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin-top: 8px;
+  white-space: pre-line;
+}
+
+.diag b {
+  color: var(--armed);
+  font-weight: 600;
+}
+
 .hint {
   color: var(--muted);
   font-size: 12px;
