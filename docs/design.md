@@ -211,8 +211,22 @@ land a page turn on turning away and back. Rotating about a vertical axis leaves
 vertical distances alone, so the face's own height from forehead to chin is used
 instead: it survives yaw and still tracks distance from the camera.
 
-Past a quarter turn the far eye's landmarks are guesswork whatever the scale, so
-nothing acts on them — and the learned open-reference stops updating too, since
+**Every distance here is measured in the image plane, with z left out.** This is
+not a detail. Rotating a head does not change the distances between points on
+it, so any measure built from 3D distances is rotation-invariant by
+construction: the yaw estimate computed that way read exactly 0.00 at every
+angle, in simulation and on a real head turned hard to the left and back. Every
+gate that depended on it — the turn limit, the shake veto — had been doing
+nothing at all, through several rounds of tuning their thresholds. Foreshortening
+is a projection effect and exists only in the projection.
+
+In the image-plane proxy about 20 degrees of turn reads 0.44. Simulated shakes
+from 0.8 to 2Hz travel 0.21 to 0.37 within a 150ms window and playing sway
+travels 0.03 to 0.06, so the veto sits between them at 0.12 — the value it
+already had, which had simply never been reached.
+
+Past about 20 degrees the far eye's landmarks are guesswork whatever the scale,
+so nothing acts on them — and the learned open-reference stops updating too, since
 a reference learned from bad geometry stays wrong long after the head comes
 back. Nobody reads a score from that angle, so nothing is lost. That is what makes it survive
 the conditions that break absolute measures — glasses reflecting the screen,

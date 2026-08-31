@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31s every-turn-named";
+const BUILD = "2026-08-31t yaw-actually-measured";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -955,8 +955,11 @@ let yawSwing = 0;
 // 0.12 is the only value that vetoes every shake and no sway. Sway travels
 // slowly enough that little of it lands inside a 150ms window; a shake is
 // mostly travel.
-const MAX_YAW_SWING = 0.12; // inter-eye widths of yaw travel within ~150ms
-const MAX_YAW = 0.25; // head turned this far off centre: eye geometry unreliable
+// Both are in the image-plane proxy, where about 20 degrees of turn reads 0.44.
+// Simulated shakes from 0.8 to 2Hz travel 0.21 to 0.37 within a 150ms window;
+// playing sway travels 0.03 to 0.06. The gap between those is where this sits.
+const MAX_YAW_SWING = 0.12;
+const MAX_YAW = 0.45; // turned further than this and the far eye is guesswork
 // A 30fps readout cannot be read by eye, so the peaks are held. Without this
 // there is no way to tell "the model never sees the eye close" apart from
 // "the threshold is wrong", and both have been guessed at for several rounds.
@@ -1112,7 +1115,17 @@ function blendshape(shapes, name) {
   return shapes.find((c) => c.categoryName === name)?.score ?? 0;
 }
 
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
+/**
+ * Distance in the image plane only.
+ *
+ * The z coordinate must stay out of this. Rotating a head does not change the
+ * distances between points on it, so any measure built from 3D distances is
+ * rotation-invariant by construction — the yaw estimate computed that way read
+ * exactly 0.00 at every angle, and every gate depending on it had been doing
+ * nothing at all. Foreshortening is a projection effect, so it only exists in
+ * the projection.
+ */
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 // Eyelid geometry, straight off the mesh.
 //

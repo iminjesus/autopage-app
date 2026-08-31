@@ -26,14 +26,22 @@ const turns = [];
 let last = 1;
 const poll = setInterval(async () => {
   try {
-    const st = await page.evaluate(() => ({ p: window.__autopage.state.page, by: window.__autopage.state.turnedBy }));
+    const st = await page.evaluate(() => {
+      const log = window.__autopage.state.turnLog;
+      return { p: window.__autopage.state.page, by: log[log.length - 1]?.by ?? null };
+    });
     if (st.p !== last) { turns.push({ to: st.p, at: +((Date.now() - t0) / 1000).toFixed(1), by: st.by }); last = st.p; }
   } catch {}
 }, 150);
 await new Promise((r) => setTimeout(r, 40000));
 clearInterval(poll);
 
-console.log("TURNS   :", JSON.stringify(turns));
+const diag = await page.evaluate(() => ({
+  started: window.__autopage.state.started,
+  tonality: +window.__autopage.state.tonality.toFixed(2),
+  mode: document.getElementById("hudMode").textContent,
+}));
+console.log("TURNS   :", JSON.stringify(turns), "| state:", JSON.stringify(diag));
 console.log(`BPM used : ${BPM} (true tempo is 120; music boundaries at 12/24/36s)`);
 
 console.log("ERRORS  :", errors.length ? errors : "none");
