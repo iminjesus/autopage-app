@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31u eyes-against-each-other";
+const BUILD = "2026-08-31w sides-fixed-and-swappable";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -80,7 +80,7 @@ for (const id of [
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "startBtn", "leadInput", "diag",
   "gestureCheck", "camPreview", "gestureLive", "gestureAsym", "gestureStatus", "calibrateBtn",
-  "holdField", "holdInput",
+  "holdField", "holdInput", "swapField", "swapInput",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -908,6 +908,10 @@ const GESTURE_FPS = 30;
 const GESTURE_COOLDOWN_S = 0.6;
 const HOLD_KEY = "autopage.winkHold";
 let gestureHoldMs = 70;
+// Which eye means forward is worked out from the image, but that reasoning has
+// been wrong about enough conventions in this project to deserve an override
+// that takes one click rather than another round trip.
+let swapEyes = false;
 
 // Head pose is measured but gates nothing. Turning the head hides part of one
 // eye and the model reports that as closing, which is where the false turns
@@ -924,7 +928,10 @@ const DEFAULT_ASYM_THRESHOLD = 0.45;
 const CALIBRATION_KEY = "autopage.wink";
 // Stamped into a saved calibration. Its numbers only mean anything on the scale
 // that produced them, and the eyelid-geometry scale is not the blink-score one.
-const CALIBRATION_SCALE = "eyelid-v2";
+// v3: the sides are decided from coordinates rather than from landmark names,
+// so anything measured before this had a chance of being mirrored.
+const CALIBRATION_SCALE = "eyelid-v3";
+const SWAP_KEY = "autopage.winkSwap";
 
 let landmarker = null;
 let camStream = null;
@@ -1030,6 +1037,9 @@ function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
   if (stored >= 50 && stored <= 400) gestureHoldMs = stored;
   el.holdInput.value = String(gestureHoldMs);
+
+  swapEyes = localStorage.getItem(SWAP_KEY) === "1";
+  el.swapInput.checked = swapEyes;
 }
 
 function loadCalibration() {
@@ -1094,6 +1104,7 @@ async function startGesture() {
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
   el.gestureLive.hidden = false;
   el.holdField.hidden = false;
+  el.swapField.hidden = false;
 }
 
 function stopGesture() {
@@ -1107,6 +1118,7 @@ function stopGesture() {
   el.camPreview.hidden = true;
   el.gestureLive.hidden = true;
   el.holdField.hidden = true;
+  el.swapField.hidden = true;
   landmarker?.close();
   landmarker = null;
 }
@@ -1134,21 +1146,24 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // model was reporting "an eye is closing" without resolving which. The eyelid
 // landmarks do not have that problem: the gap between the lids is a distance,
 // and one eye's distance closing while the other's does not is unambiguous.
-const EYE_POINTS = {
-  // upper lid, lower lid, inner corner, outer corner
-  left: [386, 374, 362, 263],
-  right: [159, 145, 133, 33],
-};
+// The two eyes' lid points. Which of these belongs to the player's right eye is
+// deliberately not read off the names: whether a face model's "left" means the
+// subject's left or the viewer's left differs between sources, the camera image
+// is not mirrored while the preview is, and getting it backwards swaps forward
+// and back. It is decided from the coordinates instead — see eyeSignal.
+const EYE_A = [386, 374]; // upper lid, lower lid
+const EYE_B = [159, 145];
 
 // Midline points, top of the forehead to the bottom of the chin.
 const FACE_TOP = 10;
 const FACE_BOTTOM = 152;
 const BOTH_SHUT = 0.012; // both lid gaps this small: a blink, and no signal
 
-/** Lid gap for one eye, in the image plane. */
-function lidGap(landmarks, which) {
-  const [up, low] = EYE_POINTS[which].map((i) => landmarks[i]);
-  return up && low ? dist(up, low) : null;
+/** Lid gap and horizontal position for one eye, in the image plane. */
+function eyeOf(landmarks, points) {
+  const [up, low] = points.map((i) => landmarks[i]);
+  if (!up || !low) return null;
+  return { gap: dist(up, low), x: (up.x + low.x) / 2 };
 }
 
 /**
@@ -1169,20 +1184,33 @@ function lidGap(landmarks, which) {
  * @returns {{asym: number, openL: number, openR: number}|null}
  */
 function eyeSignal(landmarks) {
-  const gapL = lidGap(landmarks, "left");
-  const gapR = lidGap(landmarks, "right");
+  const a = eyeOf(landmarks, EYE_A);
+  const b = eyeOf(landmarks, EYE_B);
   const top = landmarks[FACE_TOP];
   const bottom = landmarks[FACE_BOTTOM];
-  if (gapL === null || gapR === null || !top || !bottom) return null;
+  if (!a || !b || !top || !bottom) return null;
 
   const height = dist(top, bottom);
   if (!(height > 0)) return null;
 
-  const sum = gapL + gapR;
+  // Facing a camera, the player's right side falls on the left of the image —
+  // the frame the landmarks come from is not mirrored, whatever the preview
+  // does. So the eye further left is theirs on the right, and no naming
+  // convention has to be trusted for that.
+  const right = a.x < b.x ? a : b;
+  const left = right === a ? b : a;
+
+  const sum = left.gap + right.gap;
   // Both eyes shut is a blink, and the ratio of two numbers near zero is noise.
   if (sum / height < BOTH_SHUT) return { asym: 0, openL: 0, openR: 0 };
 
-  return { asym: (gapR - gapL) / sum, openL: gapL / height, openR: gapR / height };
+  // Positive when the right eye is the more closed one, which is the direction
+  // the panel promises turns the page forward.
+  return {
+    asym: (left.gap - right.gap) / sum,
+    openL: left.gap / height,
+    openR: right.gap / height,
+  };
 }
 
 function updateHeadPose(landmarks) {
@@ -1287,7 +1315,7 @@ function gestureFrame() {
     return;
   }
 
-  const sign = calibration?.forwardSign ?? 1;
+  const sign = (calibration?.forwardSign ?? 1) * (swapEyes ? -1 : 1);
   const signed = asym * sign;
   const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
 
@@ -1719,6 +1747,13 @@ el.gestureCheck.addEventListener("change", async () => {
 });
 
 el.calibrateBtn.addEventListener("click", startCalibration);
+
+el.swapInput.addEventListener("change", () => {
+  swapEyes = el.swapInput.checked;
+  try {
+    localStorage.setItem(SWAP_KEY, swapEyes ? "1" : "0");
+  } catch {}
+});
 
 el.holdInput.addEventListener("change", () => {
   gestureHoldMs = Math.min(400, Math.max(50, Number(el.holdInput.value) || 70));
