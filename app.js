@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31d wink-calibration-fixed";
+const BUILD = "2026-08-31e quick-wink";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -897,8 +897,12 @@ function captureTemplate() {
 // recovery path when a page turns at the wrong moment.
 // ============================================================
 
-const GESTURE_FPS = 12; // a 400ms hold needs nothing faster, and this is cheap
-const GESTURE_HOLD_FRAMES = 5; // ~400ms
+// A deliberate wink lasts around 200ms, not the 400ms the first version asked
+// for, and at 12fps that is barely two frames to see it in. Sampling faster
+// costs little and is what makes a short gesture catchable at all.
+const GESTURE_FPS = 20;
+const GESTURE_HOLD_MS = 150;
+const GESTURE_HOLD_FRAMES = Math.max(2, Math.round((GESTURE_HOLD_MS * GESTURE_FPS) / 1000));
 const GESTURE_COOLDOWN_S = 1.2;
 const DEFAULT_ASYM_THRESHOLD = 0.5; // only used before anyone has calibrated
 const CALIBRATION_KEY = "autopage.wink";
@@ -909,6 +913,7 @@ let gestureTimer = null;
 let gestureHold = 0;
 let gestureDirection = 0;
 let lastGestureAt = 0;
+let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
 
@@ -916,9 +921,27 @@ function loadCalibration() {
   try {
     const raw = localStorage.getItem(CALIBRATION_KEY);
     calibration = raw ? JSON.parse(raw) : null;
+    if (calibration?.noiseLevel && calibration?.rightLevel && calibration?.leftLevel) {
+      calibration.threshold = thresholdFrom(
+        calibration.noiseLevel,
+        Math.min(calibration.rightLevel, calibration.leftLevel)
+      );
+    }
   } catch {
     calibration = null; // private windows and blocked storage are not errors
   }
+}
+
+/**
+ * Where to put the line between a blink and a wink.
+ *
+ * Halfway between the two is too high: a quick wink never fully closes the eye,
+ * so it lands well short of the level a held one reaches. A third of the way up
+ * still clears blink noise several times over — the asymmetry does the
+ * rejecting here, not the height of the bar.
+ */
+function thresholdFrom(noiseLevel, winkLevel) {
+  return Math.max(noiseLevel * 1.6, noiseLevel + 0.35 * (winkLevel - noiseLevel), 0.15);
 }
 
 const asymThreshold = () => calibration?.threshold ?? DEFAULT_ASYM_THRESHOLD;
@@ -950,6 +973,8 @@ async function startGesture() {
 function stopGesture() {
   clearInterval(gestureTimer);
   gestureTimer = null;
+  gestureLatched = false;
+  gestureHold = 0;
   if (camStream) camStream.getTracks().forEach((t) => t.stop());
   camStream = null;
   el.camPreview.srcObject = null;
@@ -1000,8 +1025,19 @@ function onGestureFrame() {
   gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
   gestureDirection = direction;
 
-  if (gestureHold >= GESTURE_HOLD_FRAMES && nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S) {
+  // One turn per wink. A gesture that fires on a hold would otherwise fire
+  // again every cooldown for as long as the eye stays shut, and holding a wink
+  // a beat too long is the most natural thing in the world — so the eye has to
+  // open again before the next one counts.
+  if (direction === 0) gestureLatched = false;
+
+  if (
+    !gestureLatched &&
+    gestureHold >= GESTURE_HOLD_FRAMES &&
+    nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S
+  ) {
     gestureHold = 0;
+    gestureLatched = true;
     lastGestureAt = nowSeconds();
     state.turnedBy = "wink";
     if (direction > 0) nextPage();
@@ -1107,7 +1143,7 @@ function finishCalibration() {
   const winkLevel = Math.min(rightLevel, leftLevel);
   const separation = winkLevel / noiseLevel;
 
-  const threshold = Math.max(noiseLevel * 1.6, (noiseLevel + winkLevel) / 2, 0.15);
+  const threshold = thresholdFrom(noiseLevel, winkLevel);
   calibration = { threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel };
   try {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));

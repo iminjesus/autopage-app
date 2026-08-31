@@ -185,6 +185,19 @@ affect both eyes together and cancel out of a difference.
 Right eye forward, left eye back. Back matters at least as much: it is the
 recovery path when a page turns at the wrong moment.
 
+A wink fires once. Holding it a beat too long is the most natural thing in the
+world, and a gesture that repeats every cooldown while the eye stays shut would
+turn several pages for one wink — so the eye has to open again before the next
+one counts.
+
+Two settings that both started too demanding, and were loosened against a real
+face: a deliberate wink lasts about 200ms, not the 400ms first asked for, and
+at 12 frames a second that is barely two frames to see it in. Sampling runs at
+20fps and a hold of 150ms is enough. The threshold sat halfway between blink
+noise and a full wink, which a quick wink never reaches because the eye does not
+fully close; a third of the way up still clears blink noise by two and a half
+times, and the asymmetry is what does the rejecting anyway.
+
 Head nods and plain blinks are disqualified outright — musicians do both
 constantly. The gesture must be something that does not occur while playing,
 and a unilateral eye closure is almost always deliberate.
