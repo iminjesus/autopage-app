@@ -94,6 +94,14 @@ body {
   background: var(--accent-strong);
 }
 
+/* A file input dressed as a button. It is a label, so it needs the centring a
+   real button gets for free. */
+.file-swap {
+  display: block;
+  text-align: center;
+  cursor: pointer;
+}
+
 .score-error {
   margin: 18px auto 0;
   max-width: 32em;
@@ -104,9 +112,13 @@ body {
 
 /* --- Navigation --- */
 
+/* The tap zones stop short of the home indicator. A swipe that begins on the
+   indicator dismisses the app, and a full-height target there invites one —
+   reaching for the forward zone at the bottom of the screen should not be a
+   coin toss between turning the page and leaving. */
 .nav {
   position: absolute;
-  inset: 0;
+  inset: 0 0 max(env(safe-area-inset-bottom), 12px) 0;
   z-index: 1;
   display: flex;
   justify-content: space-between;
@@ -134,8 +146,8 @@ body {
 .panel {
   position: absolute;
   z-index: 2; /* controls must stay clickable where they overlap the tap zones */
-  right: 16px;
-  bottom: 16px;
+  right: max(env(safe-area-inset-right), 16px);
+  bottom: max(env(safe-area-inset-bottom), 16px);
   width: min(320px, calc(100% - 32px));
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -305,10 +317,12 @@ body {
 /* Sits under the HUD at the top of the screen, because that is where the
    camera is. A prompt in the bottom corner asks the player to look away from
    the lens at the moment the gesture is being measured. */
+/* Below the notch, not under it: the card sits where the lens is, and on a
+   rounded screen that is exactly where the inset lives. */
 .watch {
   position: absolute;
   z-index: 3;
-  top: 44px;
+  top: calc(env(safe-area-inset-top) + 44px);
   left: 50%;
   transform: translateX(-50%);
   width: min(440px, calc(100% - 32px));

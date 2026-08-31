@@ -2,13 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- viewport-fit=cover so the score reaches the edges of a rounded screen;
+       the safe-area insets in the stylesheet keep the controls out of the
+       notch and off the home indicator. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0f1115" />
   <title>AutoPage</title>
 
   <!-- PWA / installable app -->
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icon.svg" />
+  <!-- iOS ignores an SVG icon for the home screen and screenshots the page
+       instead, so a PNG has to be here by name. -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -60,6 +66,11 @@
         <p class="panel-desc panel-desc-quiet">
           The camera runs locally and nothing leaves this device.
         </p>
+
+        <label class="btn btn-secondary btn-block file-swap">
+          Open another score
+          <input type="file" id="swapFileInput" accept="application/pdf,.pdf" hidden />
+        </label>
 
         <button id="calibrateBtn" class="btn btn-secondary btn-block">Calibrate</button>
 

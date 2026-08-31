@@ -75,6 +75,44 @@ its written tempo, turns land at 9.8 / 21.5 / 33.4s; played 20% faster with
 nothing reconfigured, at 8.3 / 18.2 / 28.0s. Every one of those was fired by
 the audio, not the clock.
 
+## On an iPad
+
+This is where it is meant to live: a tablet on a stand, no hardware, nothing to
+press.
+
+1. **Publish it.** Settings → Pages → Deploy from a branch → `main` / root. No
+   workflow file needed. It appears at `https://<user>.github.io/autopage-app/`.
+   HTTPS is not a nicety here — `getUserMedia` refuses to run without it, so a
+   plain `http://` address means no camera and no gesture at all.
+2. **Open that address in Safari, then Share → Add to Home Screen.** Since iOS
+   14.3 the camera works from a home-screen app, so there is no reason to leave
+   it in a browser tab. The service worker keeps the shell offline, so a stand
+   with no wifi on it is fine.
+3. **Open a score once.** It is stored, and it reopens on the page it was left
+   on. "Open another score" in the Setup panel changes it.
+
+What the iPad specifically needs, and what the app does about it:
+
+- **The screen must not sleep.** A player mid-piece touches nothing, and an iPad
+  dims and locks in about two minutes — which would end the performance before
+  the second page. The app holds a **screen wake lock** while a score is open
+  and re-acquires it after every trip to the home screen, because the system
+  drops it silently on the way out. Where the API is missing the app says so and
+  points at Auto-Lock in Settings; the panel's diagnostics line reports `screen
+  held` / `off` / `unsupported` so it is never a guess.
+- **Portrait.** A page of music is taller than it is wide.
+- **The tilt is the default on a touch device.** On a stand the face is 50-70cm
+  away and small in frame, which is where the eyelid measure is weakest and the
+  angle between the eyes is barely affected. The camera is asked for 720p rather
+  than VGA for the same reason. Either gesture can still be chosen in Setup.
+- **The tap zones stop short of the home indicator**, so reaching for the
+  forward zone is not a coin toss between turning the page and leaving the app.
+
+Where the lens sits does not matter much — newer iPads put it on the long edge,
+older ones on the short edge, so a stand in portrait can leave the face off to
+one side of the frame. Both measurements are ratios taken inside the face, so
+being off-centre costs nothing. Distance is what costs.
+
 ## Running it
 
 Static site, no dependencies, no build step — same shape as its sibling project

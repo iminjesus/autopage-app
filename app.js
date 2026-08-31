@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01l tilt-both-ways";
+const BUILD = "2026-09-01m ipad";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -37,6 +37,7 @@ const state = {
   doc: null,
   page: 1,
   pageCount: 0,
+  name: null, // the file it came from, for error messages
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
   templates: new Map(), // page -> chroma heard just before a previous turn
   turnAt: null, // seconds; when the schedule says this page ends
@@ -49,7 +50,7 @@ const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "nav", "prevBtn", "nextBtn",
-  "setupPanel", "setupToggle", "diag", "allowBtn",
+  "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeInput", "gestureHelp", "setupStatus",
@@ -143,13 +144,24 @@ async function showPage(n) {
   if (n - 1 >= 1) rasterizeCached(n - 1).catch(() => {});
 }
 
-async function openScore(file) {
-  const data = await file.arrayBuffer();
-  const doc = await pdfjsLib.getDocument({ data }).promise;
+/**
+ * @param bytes  the PDF itself. Not a File: the same call has to serve a score
+ *               being picked and one being restored from storage, and only the
+ *               first of those has a File behind it.
+ * @param name   for error messages.
+ * @param startPage  where to land. Coming back to a score should come back to
+ *               the page it was left on — a set is not always played from the
+ *               top, and neither is a rehearsal.
+ */
+async function openScore(bytes, name, startPage = 1) {
+  // pdf.js takes ownership of the buffer it is handed and leaves it detached,
+  // so what goes to storage has to be a copy taken before it does.
+  const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
 
   state.doc = doc;
   state.pageCount = doc.numPages;
-  state.page = 1;
+  state.name = name;
+  state.page = Math.min(Math.max(startPage, 1), doc.numPages);
   state.measures.clear();
   pageCache.clear();
   pending.clear();
@@ -159,7 +171,11 @@ async function openScore(file) {
   el.nav.hidden = false;
   el.setupPanel.hidden = false;
 
-  await showPage(1);
+  // A page turner whose screen has gone dark is not a page turner. This is the
+  // moment it starts to matter, so this is where it is asked for.
+  keepAwake();
+
+  await showPage(state.page);
   render();
 
   for (let n = 1; n <= doc.numPages; n++) {
@@ -540,7 +556,17 @@ function loadHold() {
   // was forward and the tilt was only back. The tilt carries both directions
   // now, so anyone already on that mode belongs here.
   const storedMode = localStorage.getItem(MODE_KEY);
-  gestureMode = storedMode === "tilt" || storedMode === "brow" ? "tilt" : "wink";
+  gestureMode = storedMode
+    ? storedMode === "tilt" || storedMode === "brow"
+      ? "tilt"
+      : "wink"
+    // Nothing chosen yet. On a tablet the default is the tilt: the app lives on
+    // a stand at arm's length, where the eyelid measure is weakest and the angle
+    // between the eyes is barely affected. On a laptop the face is close and
+    // either works, so the quieter gesture wins.
+    : matchMedia("(pointer: coarse)").matches
+    ? "tilt"
+    : "wink";
   el.modeInput.checked = gestureMode === "tilt";
   describeGesture();
 }
@@ -598,8 +624,12 @@ async function startGesture() {
     numFaces: 1,
   });
 
+  // 720p, not VGA. On a stand the face is 50-70cm away and small in frame, and
+  // at VGA an eyelid gap is a handful of pixels there — which is the measurement
+  // running out, not a threshold needing a nudge. Asked for as `ideal` so a
+  // camera that cannot manage it still starts.
   camStream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 640, height: 480, facingMode: "user" },
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
   });
   el.camPreview.srcObject = camStream;
   await el.camPreview.play();
@@ -1308,18 +1338,116 @@ function finishTiltCalibration(noise, right, left) {
 }
 
 // ============================================================
-// Store — per-score state, keyed by a hash of the PDF
+// Keeping the screen on
+//
+// An iPad dims and locks after a couple of minutes with nothing touching it,
+// and a player mid-piece is touching nothing — which is the entire point of the
+// app. Without this the screen goes dark somewhere in the second page and every
+// other thing here is beside the point.
 // ============================================================
 
-async function loadScoreState(hash) {
-  // TODO: IndexedDB read — templates and page durations.
-  console.warn("loadScoreState: not implemented", hash);
-  return null;
+let wakeLock = null;
+
+async function keepAwake() {
+  if (wakeLock || !("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    // The system drops the lock on its own — switching apps, low battery. The
+    // handle is not reusable after that, so it is cleared and asked for again.
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+      render();
+    });
+  } catch (err) {
+    // Refused rather than absent: a low battery, or the tab not being visible.
+    // Nothing to do but say so on the panel.
+    console.warn("wake lock refused:", err.message);
+  }
+  render();
 }
 
-async function saveScoreState(hash) {
-  // TODO: IndexedDB write.
-  console.warn("saveScoreState: not implemented", hash);
+// Leaving the app and coming back releases the lock without asking. Coming back
+// to a score that is still open should not mean coming back to a screen that
+// will go dark in two minutes.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.doc) keepAwake();
+});
+
+const wakeState = () =>
+  !("wakeLock" in navigator) ? "unsupported" : wakeLock ? "held" : "off";
+
+// ============================================================
+// Store — the score itself, so it does not have to be picked again
+//
+// Picking a file out of iCloud Drive is the last thing anyone wants to be doing
+// on a stand at the start of a piece. The score that was open last time is the
+// score to open, on the page it was left on.
+// ============================================================
+
+const DB_NAME = "autopage";
+const DB_STORE = "scores";
+const LAST = "last";
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function dbDo(mode, fn) {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(DB_STORE, mode);
+        const req = fn(tx.objectStore(DB_STORE));
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      })
+  );
+}
+
+/**
+ * Storing the score is a convenience, never a requirement. A private window, a
+ * browser with storage blocked, or a quota that a large score does not fit in
+ * are all ordinary — the app opens the file it was handed either way, so none
+ * of them is allowed to surface as an error.
+ */
+async function rememberScore(bytes, name, page) {
+  try {
+    await dbDo("readwrite", (store) =>
+      store.put({ bytes, name, page, at: Date.now() }, LAST)
+    );
+  } catch (err) {
+    console.warn("could not store the score:", err.message);
+  }
+}
+
+let pageWrite = null;
+function rememberPage(page) {
+  // Turns come in bursts while someone finds their place. One write after the
+  // bursts stops is all the next launch needs.
+  clearTimeout(pageWrite);
+  pageWrite = setTimeout(async () => {
+    try {
+      const rec = await dbDo("readonly", (store) => store.get(LAST));
+      if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, page }, LAST));
+    } catch {}
+  }, 400);
+}
+
+async function restoreLastScore() {
+  try {
+    const rec = await dbDo("readonly", (store) => store.get(LAST));
+    if (!rec?.bytes) return false;
+    await openScore(rec.bytes, rec.name ?? "the last score", rec.page ?? 1);
+    return true;
+  } catch (err) {
+    console.warn("could not reopen the last score:", err.message);
+    return false;
+  }
 }
 
 // ============================================================
@@ -1344,6 +1472,7 @@ function turnTo(n) {
   if (state.turnLog.length > 6) state.turnLog.shift();
   state.turnedBy = null;
   state.page = next;
+  rememberPage(next);
   showPage(next);
   render();
 }
@@ -1353,7 +1482,8 @@ const prevPage = () => turnTo(state.page - 1);
 
 function renderDiag() {
   el.diag.innerHTML = [
-    `page ${state.page}/${state.pageCount || "?"}   camera ${landmarker ? "on" : "off"}   build ${BUILD}`,
+    `page ${state.page}/${state.pageCount || "?"}   camera ${landmarker ? "on" : "off"}` +
+      `   screen ${wakeState()}   build ${BUILD}`,
     state.turnLog.length
       ? "turns: " +
         state.turnLog
@@ -1386,21 +1516,28 @@ function render() {
 // Wiring
 // ============================================================
 
-function loadFile(file) {
+async function loadFile(file) {
   if (!file) return;
   showError("");
   if (file.type && file.type !== "application/pdf") {
     showError(`Not a PDF: ${file.name}`);
     return;
   }
-  openScore(file)
-    .catch((err) => {
-      console.error("failed to open score:", err);
-      showError(`Could not open ${file.name} — ${err.message}`);
-    });
+  try {
+    const bytes = await file.arrayBuffer();
+    await rememberScore(bytes, file.name, 1);
+    await openScore(bytes, file.name, 1);
+  } catch (err) {
+    console.error("failed to open score:", err);
+    showError(`Could not open ${file.name} — ${err.message}`);
+  }
 }
 
 el.fileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
+// The one on the empty screen goes away with the empty screen, and on a tablet
+// there is no dragging a file onto anything. Reopening the last score
+// automatically would otherwise mean never being able to open a different one.
+el.swapFileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
 
 el.score.addEventListener("dragover", (e) => e.preventDefault());
 el.score.addEventListener("drop", (e) => {
@@ -1521,6 +1658,14 @@ showCalibrationState();
 collapseSetup(true); // nothing but the score, until someone asks for more
 render();
 beginWatching();
+restoreLastScore().then((restored) => {
+  if (!restored && !("wakeLock" in navigator)) {
+    showError(
+      "This browser cannot keep the screen awake, so it will dim while you " +
+        "play. Turn off Auto-Lock in Settings → Display & Brightness."
+    );
+  }
+});
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.

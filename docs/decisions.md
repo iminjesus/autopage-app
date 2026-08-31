@@ -114,3 +114,24 @@ and the first page supplies it for the rest.
 
 That is the thing being replaced. Pedal-style remotes send arrow keys, so the
 app supports them anyway — it costs one keydown listener.
+
+## The iPad is the target, so its constraints are the design
+
+Everything here is a browser app, which makes "where does it run" feel like a
+detail. It is not. On a stand, mid-piece, the player touches nothing — and that
+is precisely the state an iPad interprets as "nobody is here", dims, and locks.
+A page turner whose screen has gone dark is not a page turner, so the screen
+wake lock is not a polish item; it is the first requirement, ahead of any
+gesture. It is also not fire-and-forget: the system releases the lock on every
+trip away from the app and hands back a dead handle, so it has to be asked for
+again on return, and the panel reports whether it is actually held rather than
+whether it was requested.
+
+The rest follows from the same picture. The score is stored and reopened where
+it was left, because picking a file out of iCloud Drive at the start of a piece
+is the exact thing this app exists to avoid — and because that closes the loop,
+a way to open a *different* score had to be added in the same change, since the
+picker lived on an empty screen that would now never be seen. The tap zones stop
+short of the home indicator, where a swipe leaves the app. And the tilt becomes
+the default gesture on a touch device: at arm's length on a stand, an eyelid gap
+is a handful of pixels and the angle between the eyes is almost unchanged.
