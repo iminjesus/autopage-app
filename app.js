@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31t yaw-actually-measured";
+const BUILD = "2026-08-31u eyes-against-each-other";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -924,7 +924,7 @@ const DEFAULT_ASYM_THRESHOLD = 0.45;
 const CALIBRATION_KEY = "autopage.wink";
 // Stamped into a saved calibration. Its numbers only mean anything on the scale
 // that produced them, and the eyelid-geometry scale is not the blink-score one.
-const CALIBRATION_SCALE = "eyelid-v1";
+const CALIBRATION_SCALE = "eyelid-v2";
 
 let landmarker = null;
 let camStream = null;
@@ -981,7 +981,7 @@ function traceReport(reason) {
   const rows = trace.slice(-9);
   const lines = rows.map(
     (f) =>
-      `  ${f.t.toFixed(2)}s  L${f.l.toFixed(2)} R${f.r.toFixed(2)} ` +
+      `  ${f.t.toFixed(2)}s  openL${f.l.toFixed(3)} openR${f.r.toFixed(3)} ` +
       `diff${f.d >= 0 ? "+" : ""}${f.d.toFixed(2)} yaw${f.y >= 0 ? "+" : ""}${f.y.toFixed(2)} ` +
       `swing${f.s.toFixed(2)}${f.p ? "" : " TURNED"}`
   );
@@ -1143,52 +1143,48 @@ const EYE_POINTS = {
 // Midline points, top of the forehead to the bottom of the chin.
 const FACE_TOP = 10;
 const FACE_BOTTOM = 152;
+const BOTH_SHUT = 0.012; // both lid gaps this small: a blink, and no signal
+
+/** Lid gap for one eye, in the image plane. */
+function lidGap(landmarks, which) {
+  const [up, low] = EYE_POINTS[which].map((i) => landmarks[i]);
+  return up && low ? dist(up, low) : null;
+}
 
 /**
- * Lid gap, scaled so that turning the head does not change it.
+ * How far apart the two eyes are, as a fraction of how open they are together.
  *
- * Dividing by the eye's own width — the obvious choice — fails exactly where
- * this was reported failing: yaw foreshortens horizontal distances, so the far
- * eye's width shrinks while its lid gap does not, and the ratio climbs with
- * nobody having moved an eyelid. Turning away and back then lands a page turn.
+ * The two eyes share a head. They are the same distance from the camera, at the
+ * same angle, in the same light — so a ratio between them cancels every one of
+ * those, and none of it has to be modelled or tracked.
  *
- * Rotating about a vertical axis leaves vertical distances alone, so the face's
- * own height is a scale that survives it, and it tracks distance from the
- * camera the same way the eye width did.
+ * The version before this compared each eye against a learned "open" value for
+ * that eye. Learning a reference means the reference can be wrong: it tracked
+ * the largest gap seen and decayed over some twenty seconds, so anything that
+ * briefly widened the eye pinned it high, and afterwards a perfectly open eye
+ * read as closing. Moving the head sideways registered both eyes at 0.56 and
+ * 0.78 closed at once, which is the signature of a reference problem rather
+ * than an eye problem — a real wink cannot close both.
+ *
+ * @returns {{asym: number, openL: number, openR: number}|null}
  */
-function aspectRatio(landmarks, which) {
-  const [up, low] = EYE_POINTS[which].map((i) => landmarks[i]);
+function eyeSignal(landmarks) {
+  const gapL = lidGap(landmarks, "left");
+  const gapR = lidGap(landmarks, "right");
   const top = landmarks[FACE_TOP];
   const bottom = landmarks[FACE_BOTTOM];
-  if (!up || !low || !top || !bottom) return null;
+  if (gapL === null || gapR === null || !top || !bottom) return null;
+
   const height = dist(top, bottom);
-  return height > 0 ? dist(up, low) / height : null;
+  if (!(height > 0)) return null;
+
+  const sum = gapL + gapR;
+  // Both eyes shut is a blink, and the ratio of two numbers near zero is noise.
+  if (sum / height < BOTH_SHUT) return { asym: 0, openL: 0, openR: 0 };
+
+  return { asym: (gapR - gapL) / sum, openL: gapL / height, openR: gapR / height };
 }
 
-// The open-eye ratio differs per person, per camera and per pair of glasses, so
-// it is learned rather than assumed: the widest recently seen counts as open.
-const openRef = { left: 0.045, right: 0.045 };
-
-function closedness(landmarks, which, poseReliable) {
-  const ear = aspectRatio(landmarks, which);
-  if (ear === null) return 0;
-  // A reference learned while the head was turned away is a reference learned
-  // from bad geometry, and it stays wrong long after the head comes back.
-  if (poseReliable) {
-    openRef[which] = Math.max(ear, openRef[which] * 0.999 + ear * 0.001);
-  }
-  const ref = Math.max(openRef[which], 0.015);
-  return Math.min(1, Math.max(0, 1 - ear / ref));
-}
-
-/**
- * How far the head is turned, and how fast it is moving.
- *
- * Both in units of the distance between the eye corners, so they mean the same
- * thing whether the player is close to the camera or far from it. Turning the
- * head moves the nose closer to one eye corner than the other, which is all the
- * yaw estimate needs to be.
- */
 function updateHeadPose(landmarks) {
   const nose = landmarks[1];
   const eyeA = landmarks[33];
@@ -1248,15 +1244,16 @@ function gestureFrame() {
   // Far enough round and the far eye's landmarks are guesswork. Nobody reads a
   // score from there either, so nothing is lost by declining to act on it.
   const poseReliable = Math.abs(headYaw) < MAX_YAW;
-  const left = landmarks ? closedness(landmarks, "left", poseReliable) : 0;
-  const right = landmarks ? closedness(landmarks, "right", poseReliable) : 0;
-  const asym = left - right;
+  const eyes = landmarks ? eyeSignal(landmarks) : null;
+  const left = eyes ? eyes.openL : 0;
+  const right = eyes ? eyes.openR : 0;
+  const asym = eyes ? eyes.asym : 0;
 
   // Kept only to show alongside, so the two measures can be compared on a real
   // face instead of argued about.
   const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
-  if (calibrating) return sampleCalibration(asym, Math.max(left, right));
+  if (calibrating) return sampleCalibration(asym, Math.abs(asym));
 
   // Back to judging the raw difference between the eyes.
   //
@@ -1276,9 +1273,9 @@ function gestureFrame() {
   });
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
-    `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
+    `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
     `  ${gestureHold}/${holdFrames()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
-    `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  diff ${peaks.net.toFixed(2)} ` +
+    `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
     `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
@@ -1439,9 +1436,9 @@ function finishCalibration() {
   // be stored, or the app spends the rest of the session obeying it — which is
   // what a threshold of 0.15 from a wink measured at 0.10 amounted to.
   const closedPeak = Math.max(eyePeaks.right, eyePeaks.left);
-  if (closedPeak < 0.5) {
+  if (closedPeak < 0.35) {
     el.gestureStatus.textContent =
-      `The eye never reads as closed — peak ${closedPeak.toFixed(2)}, expected above 0.8.\n` +
+      `The eyes never came apart — peak difference ${closedPeak.toFixed(2)}, expected above 0.6.\n` +
       "The face model is not seeing the wink at all, so no threshold will help. " +
       "More light on your face, or moving closer to the camera, is what to try. " +
       "Nothing was saved.";

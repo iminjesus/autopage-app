@@ -203,123 +203,26 @@ distance, and one eye's gap closing while the other's does not is unambiguous.
 What counts as open is learned per eye rather than assumed, since it varies with
 the person, the camera and the glasses.
 
-**What the gap is measured against matters.** Dividing by the eye's own width is
-the obvious choice and it fails under head rotation: yaw foreshortens horizontal
-distances, so the far eye's width shrinks while its lid gap does not, and the
-ratio climbs with no eyelid having moved — at 30° that is a 15% error, enough to
-land a page turn on turning away and back. Rotating about a vertical axis leaves
-vertical distances alone, so the face's own height from forehead to chin is used
-instead: it survives yaw and still tracks distance from the camera.
+**The eyes are measured against each other, not against a remembered value.**
+The two eyes share a head: same distance from the camera, same angle, same
+light. A ratio between them cancels every one of those, and none of it has to be
+modelled, tracked, or corrected for.
 
-**Every distance here is measured in the image plane, with z left out.** This is
-not a detail. Rotating a head does not change the distances between points on
-it, so any measure built from 3D distances is rotation-invariant by
-construction: the yaw estimate computed that way read exactly 0.00 at every
-angle, in simulation and on a real head turned hard to the left and back. Every
-gate that depended on it — the turn limit, the shake veto — had been doing
-nothing at all, through several rounds of tuning their thresholds. Foreshortening
-is a projection effect and exists only in the projection.
+Two earlier versions did try to model it. Dividing the lid gap by the eye's own
+width failed under yaw, which foreshortens horizontal distances and not vertical
+ones. Comparing each eye against a learned open-value for that eye failed
+differently and worse: a learned reference can be wrong, and this one tracked the
+largest gap seen with a twenty-second decay, so anything that briefly widened an
+eye pinned its reference high and afterwards a perfectly open eye read as
+closing. A reference 30% high reports 0.23 of asymmetry from two equally open
+eyes — against a threshold that had to be low enough for a quick wink. Moving
+the head sideways registered both eyes as 0.56 and 0.78 closed at once, which no
+wink can do, and that is the shape of a reference problem rather than an eye one.
 
-In the image-plane proxy about 20 degrees of turn reads 0.44. Simulated shakes
-from 0.8 to 2Hz travel 0.21 to 0.37 within a 150ms window and playing sway
-travels 0.03 to 0.06, so the veto sits between them at 0.12 — the value it
-already had, which had simply never been reached.
-
-Past about 20 degrees the far eye's landmarks are guesswork whatever the scale,
-so nothing acts on them — and the learned open-reference stops updating too, since
-a reference learned from bad geometry stays wrong long after the head comes
-back. Nobody reads a score from that angle, so nothing is lost. That is what makes it survive
-the conditions that break absolute measures — glasses reflecting the screen,
-stage lighting, someone squinting at a hard passage — because all of those
-affect both eyes together and cancel out of a difference.
-
-Right eye forward, left eye back. Back matters at least as much: it is the
-recovery path when a page turns at the wrong moment.
-
-A wink fires once. Holding it a beat too long is the most natural thing in the
-world, and a gesture that repeats every cooldown while the eye stays shut would
-turn several pages for one wink — so the eye has to open again before the next
-one counts.
-
-The threshold sat halfway between blink noise and a full wink, which a quick
-wink never reaches because the eye does not fully close. A third of the way up
-still clears blink noise by two and a half times, and the asymmetry is what does
-the rejecting anyway — the height of the bar was never doing that work.
-
-How long the wink must be held is a **setting**, not a constant. Two rounds of
-guessing at it from outside — 400ms, then 150ms — both came back too slow from
-the only place that can judge it, which is someone's actual face. Sampling runs
-at 30fps so the required length can go as low as two frames, and two frames is
-kept as the floor so a single glitched frame can never turn a page. The default
-is 70ms, which lands on that floor.
-
-Head nods and plain blinks are disqualified outright — musicians do both
-constantly. The gesture must be something that does not occur while playing,
-and a unilateral eye closure is almost always deliberate.
-
-**A head shake is separable from a wink, and not by tuning.** Shaking sweeps the
-yaw back and forth; a wink does not move the head at all. So the veto is on yaw
-*travel* within 150ms, which has nothing to do with how long or how hard the
-wink is — making the gesture easier to trigger costs nothing here, where every
-threshold change would have traded one problem for the other.
-
-Swept against simulated shakes from 0.8 to 2Hz and playing sway up to 0.5Hz:
-0.12 inter-eye widths is the only value that vetoes every shake and no sway.
-Sway travels slowly enough that little of it lands inside the window; a shake is
-mostly travel.
-
-**Slow drift is still unsolved.** Turning the head hides part of one eye from the
-camera and the model reports that as the eye closing, so the difference rises
-with nobody having winked, and ordinary swaying turns pages.
-
-Two corrections were tried and both were removed. Ignoring frames while the head
-moved would have made the gesture unusable — a musician moves constantly.
-Subtracting a slow baseline was tuned against simulated head turns and simulated
-winks, and against a real face it absorbed the wink along with the movement:
-the net signal sat at 0.00 while a wink was in progress.
-
-The common fault is that both were designed against a guess at the signal
-rather than the signal. What is in place now is instrumentation — held peaks
-for each eye and the difference, plus head yaw and per-frame motion, none of
-which gate anything. The next attempt gets built from what those show.
-
-The threshold sat halfway between blink noise and a full wink, which a quick
-wink never reaches because the eye does not fully close. A third of the way up
-still clears blink noise by two and a half times, and the asymmetry is what does
-the rejecting anyway — the height of the bar was never doing that work.
-
-How long the wink must be held is a **setting**, not a constant. Two rounds of
-guessing at it from outside — 400ms, then 150ms — both came back too slow from
-the only place that can judge it, which is someone's actual face. Sampling runs
-at 30fps so the required length can go as low as two frames, and two frames is
-kept as the floor so a single glitched frame can never turn a page. The default
-is 70ms, which lands on that floor.
-
-Head nods and plain blinks are disqualified outright — musicians do both
-constantly. The gesture must be something that does not occur while playing,
-and a unilateral eye closure is almost always deliberate.
-
-**Movement is subtracted, not refused.** Turning the head hides part of one eye
-from the camera and the model reports that as the eye closing, so the difference
-rises with nobody having winked — which had ordinary swaying turning pages. The
-first fix was to ignore frames while the head moved, and that was wrong: a
-musician moves constantly, and a gesture that only works while sitting rigidly
-is not a gesture. What actually separates the two is speed. A head turn drifts
-over a second or more; a wink is a spike. So the difference has a slow baseline
-tracked and subtracted from it, and only what the baseline cannot follow counts.
-The baseline freezes while a candidate is in progress so it cannot chase the
-gesture it exists to reveal.
-
-Swept against simulated turns, sway at two rates, and winks from 80 to 160ms:
-with a 0.3s baseline, a head turn nets 0.12 and sway nets 0.22 against a
-threshold of 0.39, while the weakest wink tested nets 0.55. The remaining pose
-limits only exclude a head turned right away from the score.
-
-Face landmarks run locally: no video leaves the device, and nothing is fetched
-from a network. The runtime and model are 13MB, so they are imported only when
-the gesture is switched on — someone who never uses it never pays for it.
-Inference runs at 12 frames a second, which is ample for a 400ms hold and a
-fraction of the cost of running at video rate.
+The ratio is `(gapR - gapL) / (gapR + gapL)`: zero when the eyes match however
+open they are, near ±1 when one shuts. Face size cancels out of it entirely, so
+it is not even measured. Both eyes shut is a blink, and the ratio of two numbers
+near zero is noise, so that case reports nothing rather than a number.
 
 ### calibration — the part that is not optional
 
