@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31l gesture-error-visible";
+const BUILD = "2026-08-31m eyelid-geometry";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -917,7 +917,9 @@ let gestureHoldMs = 70;
 
 const holdFrames = () =>
   Math.max(2, Math.round((gestureHoldMs * GESTURE_FPS) / 1000));
-const DEFAULT_ASYM_THRESHOLD = 0.5; // only used before anyone has calibrated
+// On the eyelid-geometry scale one eye fully shut against one fully open is
+// 1.0, so this is a little under half a wink.
+const DEFAULT_ASYM_THRESHOLD = 0.45;
 const CALIBRATION_KEY = "autopage.wink";
 
 let landmarker = null;
@@ -1049,6 +1051,39 @@ function blendshape(shapes, name) {
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, (a.z ?? 0) - (b.z ?? 0));
 
+// Eyelid geometry, straight off the mesh.
+//
+// The blendshape route measured a wink at 0.09 of difference on a face whose
+// eyes were plainly doing different things — both scores rose together, so the
+// model was reporting "an eye is closing" without resolving which. The eyelid
+// landmarks do not have that problem: the gap between the lids is a distance,
+// and one eye's distance closing while the other's does not is unambiguous.
+const EYE_POINTS = {
+  // upper lid, lower lid, inner corner, outer corner
+  left: [386, 374, 362, 263],
+  right: [159, 145, 133, 33],
+};
+
+/** Lid gap over eye width — near 0.3 open, near 0.05 shut. */
+function aspectRatio(landmarks, which) {
+  const [up, low, inner, outer] = EYE_POINTS[which].map((i) => landmarks[i]);
+  if (!up || !low || !inner || !outer) return null;
+  const width = dist(inner, outer);
+  return width > 0 ? dist(up, low) / width : null;
+}
+
+// The open-eye ratio differs per person, per camera and per pair of glasses, so
+// it is learned rather than assumed: the widest recently seen counts as open.
+const openRef = { left: 0.3, right: 0.3 };
+
+function closedness(landmarks, which) {
+  const ear = aspectRatio(landmarks, which);
+  if (ear === null) return 0;
+  openRef[which] = Math.max(ear, openRef[which] * 0.999 + ear * 0.001);
+  const ref = Math.max(openRef[which], 0.1);
+  return Math.min(1, Math.max(0, 1 - ear / ref));
+}
+
 /**
  * How far the head is turned, and how fast it is moving.
  *
@@ -1113,10 +1148,13 @@ function gestureFrame() {
     return;
   }
 
-  const left = blendshape(shapes, "eyeBlinkLeft");
-  const right = blendshape(shapes, "eyeBlinkRight");
-  // Mirrored: the viewer's right eye is the model's left.
+  const left = landmarks ? closedness(landmarks, "left") : 0;
+  const right = landmarks ? closedness(landmarks, "right") : 0;
   const asym = left - right;
+
+  // Kept only to show alongside, so the two measures can be compared on a real
+  // face instead of argued about.
+  const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
   if (calibrating) return sampleCalibration(asym, Math.max(left, right));
 
@@ -1137,7 +1175,8 @@ function gestureFrame() {
     `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
     `  ${gestureHold}/${holdFrames()}f${shaking ? "  SHAKING" : ""}\n` +
     `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  diff ${peaks.net.toFixed(2)} ` +
-    `/ ${asymThreshold().toFixed(2)}   swing ${yawSwing.toFixed(2)} / ${MAX_YAW_SWING}`;
+    `/ ${asymThreshold().toFixed(2)}   swing ${yawSwing.toFixed(2)} / ${MAX_YAW_SWING}` +
+    `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
 
   if (shaking) {
     recent.length = 0;
@@ -1248,7 +1287,8 @@ function sampleCalibration(asym, closedEye) {
   }
   const remaining = Math.max(0, calibrating.until - nowSeconds());
   el.gestureAsym.textContent =
-    `${phase.prompt}  ${remaining.toFixed(0)}s   (live diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)})`;
+    `${phase.prompt}  ${remaining.toFixed(0)}s\n` +
+    `live  closed ${closedEye.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}`;
   if (remaining > 0) return;
 
   calibrating.index += 1;

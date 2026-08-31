@@ -177,7 +177,18 @@ model. Bars remaining is now diagnostics, in the panel, out of the way.
 ### gesture — winking to turn
 
 A normal blink is symmetric; a wink is not. So the signal is the *difference*
-between the eyes, never how shut either one is. That is what makes it survive
+between the eyes, never how shut either one is.
+
+That difference is measured from **eyelid geometry**, not from the model's
+blink scores. The blink scores were the first attempt and they do not resolve
+which eye is closing: on a real face, winking moved both scores up together and
+the difference peaked at 0.09 while each score reached 0.5. No threshold
+survives a signal that small, and several rounds were spent tuning against it.
+The lid landmarks have no such ambiguity — the gap between the lids over the
+width of the eye is a distance, near 0.3 open and near 0.05 shut, and one eye's
+gap closing while the other's does not is unambiguous. What counts as open is
+learned per eye rather than assumed, since it varies with the person, the
+camera and the glasses. That is what makes it survive
 the conditions that break absolute measures — glasses reflecting the screen,
 stage lighting, someone squinting at a hard passage — because all of those
 affect both eyes together and cancel out of a difference.
