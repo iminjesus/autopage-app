@@ -267,11 +267,14 @@ never firing at all, which is how a working gesture stopped working the moment
 the hold was lengthened. Three quarters of the window has to agree, so the
 tolerance scales with the window instead of staying at "one dropped frame".
 
-**And the wink has to be deliberate.** The hold went the other way earlier, down
-to 70ms, when the complaint was that quick winks were missed. With false turns
-now the more expensive failure, the default is half a second: long enough that
-nothing incidental lasts that long, short enough not to interrupt playing. It
-remains a setting.
+**Duration is the weakest of the three tests, so it carries the least.** It went
+to 70ms when missed winks were the complaint, then to half a second when false
+turns were, and half a second is genuinely tiresome to hold mid-piece. Neither
+extreme was the answer, because duration was being asked to do work that shape
+does better: the gap gate and the per-direction thresholds reject a look down
+and a half-lidded eye on what they look like, not on how long they last. With
+those carrying the load the hold sits at 300ms, which fires after about 230ms of
+agreement. It remains a setting.
 
 ### testing the part with a face in it
 

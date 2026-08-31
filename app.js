@@ -353,7 +353,12 @@ const GESTURE_COOLDOWN_S = 0.6;
 // Bumped so the new default applies: a stored 70ms from when the goal was
 // catching quick winks would defeat the point of asking for a deliberate one.
 const HOLD_KEY = "autopage.winkHold2";
-let gestureHoldMs = 500;
+// Half a second was chosen when false turns were the problem and duration was
+// the only lever available. It is no longer the only lever: the gap gate and the
+// per-direction thresholds reject the look-down and half-lidded cases outright,
+// on shape rather than on patience, so the hold can come back down to something
+// that does not interrupt playing.
+let gestureHoldMs = 300;
 // Which eye means forward is worked out from the image, but that reasoning has
 // been wrong about enough conventions in this project to deserve an override
 // that takes one click rather than another round trip.
