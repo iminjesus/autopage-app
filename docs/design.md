@@ -273,8 +273,10 @@ turns were, and half a second is genuinely tiresome to hold mid-piece. Neither
 extreme was the answer, because duration was being asked to do work that shape
 does better: the gap gate and the per-direction thresholds reject a look down
 and a half-lidded eye on what they look like, not on how long they last. With
-those carrying the load the hold sits at 300ms, which fires after about 230ms of
-agreement. It remains a setting.
+those carrying the load the hold sits at 200ms, settled by trying it rather than
+reasoning about it: that is where it stops being noticeable while still being
+longer than an accident. It fires after about 130ms of agreement, and it remains
+a setting.
 
 ### testing the part with a face in it
 

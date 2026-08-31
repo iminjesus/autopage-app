@@ -46,7 +46,8 @@ const open = 0.015, shut = 0.001;
 const cases = [
   ["eyes open for 2s",            { gapL: open, gapR: open, frames: 60 }, false],
   ["right eye winks 0.6s",        { gapL: open, gapR: shut, frames: 18 }, true],
-  ["right eye winks 0.2s",        { gapL: open, gapR: shut, frames: 6 },  false],
+  ["right eye winks 0.1s",        { gapL: open, gapR: shut, frames: 3 },  false],
+  ["right eye winks 0.2s",        { gapL: open, gapR: shut, frames: 6 },  true],
   ["right eye winks 0.35s",       { gapL: open, gapR: shut, frames: 11 }, true],
   ["left eye winks 0.6s",         { gapL: shut, gapR: open, frames: 18 }, true],
   ["looking down, lids low 2s",   { gapL: 0.0024, gapR: 0.0039, frames: 60 }, false],

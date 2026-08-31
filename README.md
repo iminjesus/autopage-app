@@ -21,8 +21,7 @@ page".
 
 ## What still turns pages
 
-- **Winking** — right eye forward, left eye back, held for about a third of a
-  second. What separates a wink from glancing down at the keyboard is its
+- **Winking** — right eye forward, left eye back, held for a fifth of a second. What separates a wink from glancing down at the keyboard is its
   shape, not its length, so the hold does not have to be tiring.
 - **Arrow keys, PageUp/PageDown, space** — which is also what a Bluetooth
   page-turner pedal sends, so those work with no setup.
