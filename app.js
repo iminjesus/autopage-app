@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31n calibration-persists";
+const BUILD = "2026-08-31o calibration-state-visible";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -966,6 +966,23 @@ function notePeaks(left, right, net) {
   peaks.net = Math.max(peaks.net, Math.abs(net));
 }
 
+/**
+ * Say whether a calibration is stored, without needing the camera on.
+ *
+ * The status only appeared once the gesture was switched on, so the only way to
+ * check whether a calibration had survived was to start the camera and look —
+ * which is a strange thing to have to do to answer "is it saved?".
+ */
+function showCalibrationState() {
+  el.gestureStatus.hidden = false;
+  el.gestureStatus.textContent = calibration
+    ? `Calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser ` +
+      `(separation x${calibration.separation.toFixed(1)}, threshold ` +
+      `${calibration.threshold.toFixed(2)}). Recalibrate any time to replace it.`
+    : "Not calibrated — running on defaults. Switch on Wink to turn, then press " +
+      "Calibrate. It is stored in this browser and only needs doing once.";
+}
+
 function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
   if (stored >= 50 && stored <= 400) gestureHoldMs = stored;
@@ -1566,16 +1583,20 @@ el.prevBtn.addEventListener("click", () => {
 el.startBtn.addEventListener("click", startAuto);
 
 el.gestureCheck.addEventListener("change", async () => {
-  if (!el.gestureCheck.checked) return stopGesture();
+  if (!el.gestureCheck.checked) {
+    stopGesture();
+    showCalibrationState();
+    return;
+  }
   el.gestureStatus.hidden = false;
   el.gestureStatus.textContent = "Loading the face model…";
   try {
     await startGesture();
     el.gestureStatus.textContent = calibration
-      ? `Ready — calibrated ${calibration.savedAt ?? "earlier"} and saved in this browser. ` +
+      ? `Ready — calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser. ` +
         `Right eye forward, left eye back.`
-      : "Ready, on default settings. Calibrating tunes it to your face and is " +
-        "remembered — you only do it once.";
+      : "Ready, on defaults. Calibrating tunes it to your face and is remembered — " +
+        "you only do it once.";
   } catch (err) {
     el.gestureCheck.checked = false;
     el.gestureStatus.textContent = `Camera unavailable — ${err.message}`;
@@ -1639,6 +1660,7 @@ if ("serviceWorker" in navigator) {
 
 loadCalibration();
 loadHold();
+showCalibrationState();
 render();
 window.__autopageReady = true;
 
