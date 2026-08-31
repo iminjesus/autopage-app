@@ -81,10 +81,18 @@ accumulate across pages.
 
 It counts **played** time, not wall time. Nothing starts until the first note is
 heard, and the clock stops advancing whenever the instrument falls silent, so a
-page cannot turn under a player who is sitting still — reading ahead, tuning, or
-just not started yet. Playing is judged against the room's own noise floor
-rather than an absolute level, and silence shorter than a second is treated as a
-rest rather than a stop.
+page cannot turn under a player who is sitting still.
+
+Playing is judged by whether the sound has pitch, not by how loud it is. Every
+level-based gate eventually decides that a quiet room's own floor is a
+performance — that is what a first attempt did. Broadband noise spreads evenly
+across the twelve pitch classes, so its chroma is flat: measured at 0.40 for
+hiss and hum against 0.94 for played notes, where a perfectly flat vector is
+0.29. The threshold sits at 0.55.
+
+Silence shorter than a second is a rest, not a stop — but only after something
+has actually sounded, or the grace period itself starts the clock in an empty
+room.
 
 Without a microphone there is nothing to wait for, so the clock starts when
 Start is pressed and the tempo has to be right. The app says so.
@@ -131,8 +139,14 @@ Those two numbers were tuned from a failure, not guessed. At three frames and
 window's expectation: the peak is only a couple of frames wide, and a longer
 confident run simply is not there to be found.
 
-The schedule holds the outside of the window. If nothing matches by the time it
-closes, the page turns anyway — a missed match must not strand the player.
+**Hearing the page's ending is the only thing that turns it.** A clock cannot
+tell this piece from a different one, so letting it turn on time alone means any
+playing at all advances the score — including the wrong piece, and including a
+room that merely sounds busy. Measured: a recording with identical rhythm and
+every pitch moved a semitone turns nothing at all.
+
+Pages the reader could not parse have no such test, and those alone fall back to
+turning on time.
 
 Two details matter more than they look:
 
@@ -177,7 +191,10 @@ next open.
 | Player stops mid-piece | The clock stops with them and resumes on the next note. |
 | Scanned score, no staves found | Manual turning, stated plainly. |
 | Performance faster or slower than written | The match fires on the music. Measured 20% fast, every turn still came from audio. |
-| Matcher misses | The schedule still turns the page. |
+| Matcher misses on a readable page | Nothing turns. The player uses a gesture or a tap. |
+| Page the reader could not parse | Falls back to turning on time. |
+| A different piece is played | Nothing turns; the match never rises. |
+| Room is noisy but nobody is playing | Nothing turns, and the clock never starts. |
 | Matcher fires early | Player uses the back gesture. Timing re-anchors. |
 | Reached the last page | Schedule stops; nothing left to turn to. |
 

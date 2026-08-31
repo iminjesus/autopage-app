@@ -35,7 +35,7 @@ const MATCH_THRESHOLD = 0.85; // measured: ~0.9 at a page end, ~0.5 elsewhere
 const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
 const ARM_WINDOW_S = 3.5; // floor for the detection window, either side
 const ARM_WINDOW_FRACTION = 0.15; // widen it for a performance taken off-tempo
-const SOUND_MARGIN_DB = 10; // how far above the room's own noise counts as playing
+const TONALITY_MIN = 0.55; // measured: hiss and hum reach 0.40, played notes 0.94
 const SILENCE_HOLD_S = 1.0; // silence shorter than this is a rest, not a stop
 const MIN_HZ = 70;
 const MAX_HZ = 5000;
@@ -61,6 +61,7 @@ const state = {
   sonorities: new Map(), // page -> harmonies read off the page, in order
   templates: new Map(), // page -> chroma heard just before a previous turn
   playing: false, // is anything actually sounding right now
+  tonality: 0, // 0.29 is a flat chroma (noise); a played note is well above
   started: false, // has the performance begun at all
   turnAt: null, // seconds; when the schedule says this page ends
   turnedBy: null, // "audio" | "schedule" | "manual" — what actually fired the last turn
@@ -626,40 +627,40 @@ let micStream = null;
 let analyser = null;
 let featureTimer = null;
 let spectrum = null;
-let noiseFloor = -80;
 let silentSince = null;
+let heardAnything = false;
 const chromaLog = []; // {t, c: Float32Array(12)}, oldest first
-
-/** Loudest bin in the musical band, in dB. */
-function frameLevel(db) {
-  const binHz = audioCtx.sampleRate / FFT_SIZE;
-  let peak = -Infinity;
-  for (let i = 1; i < db.length; i++) {
-    const f = i * binHz;
-    if (f < MIN_HZ || f > MAX_HZ) continue;
-    if (db[i] > peak) peak = db[i];
-  }
-  return Math.max(peak, -100);
-}
 
 /**
  * Is the instrument sounding?
  *
- * Judged against the room rather than an absolute level, because a quiet room
- * and a loud one disagree by tens of dB. The floor drops instantly and recovers
- * slowly, so a sustained note cannot drag it up and mask itself.
+ * Judged by whether the sound has pitch, not by how loud it is. Loudness fails
+ * in exactly the case that matters: a quiet room still has a floor, and any
+ * level-based gate eventually decides that the floor is a performance. Room
+ * noise is broadband and spreads evenly across the twelve pitch classes, so its
+ * chroma is flat — a unit vector spread over twelve bins peaks at 0.29 — while
+ * a played note concentrates most of its energy into one or two of them.
+ *
+ * Near-silence never gets this far: chromaFrom ignores bins at the analyser's
+ * floor, so a silent input produces a zero vector and no tonality at all.
  */
-function updatePlaying(db) {
-  const level = frameLevel(db);
-  noiseFloor = level < noiseFloor ? level : noiseFloor + 0.02;
-  noiseFloor = Math.min(Math.max(noiseFloor, -100), -30);
+function updatePlaying(chroma) {
+  let peak = 0;
+  for (let i = 0; i < 12; i++) if (chroma[i] > peak) peak = chroma[i];
 
-  const loud = level > noiseFloor + SOUND_MARGIN_DB;
-  if (loud) silentSince = null;
-  else if (silentSince === null) silentSince = nowSeconds();
+  const tonal = peak > TONALITY_MIN;
+  if (tonal) {
+    silentSince = null;
+    heardAnything = true;
+  } else if (silentSince === null) {
+    silentSince = nowSeconds();
+  }
 
-  // A rest is silence too. Only a gap longer than a phrase counts as stopping.
-  state.playing = loud || nowSeconds() - silentSince < SILENCE_HOLD_S;
+  state.tonality = peak;
+  // A rest is silence too — but only once something has actually sounded.
+  // Without that guard the grace period counts as playing from the first
+  // frame, and an empty room starts the clock.
+  state.playing = tonal || (heardAnything && nowSeconds() - silentSince < SILENCE_HOLD_S);
 }
 
 async function startListening() {
@@ -727,8 +728,9 @@ function chromaFrom(db) {
 
 function onFeatureFrame() {
   analyser.getFloatFrequencyData(spectrum);
-  updatePlaying(spectrum);
-  chromaLog.push({ t: nowSeconds(), c: chromaFrom(spectrum) });
+  const chroma = chromaFrom(spectrum);
+  updatePlaying(chroma);
+  chromaLog.push({ t: nowSeconds(), c: chroma });
 
   const cutoff = nowSeconds() - BUFFER_S;
   while (chromaLog.length && chromaLog[0].t < cutoff) chromaLog.shift();
@@ -982,6 +984,8 @@ async function startAuto() {
   if (state.mode === "auto") return stopAuto();
 
   state.mode = "auto";
+  heardAnything = false;
+  silentSince = null;
   collapseSetup(true); // it covers the score, and there is nothing left to set
   turnTo(1);
   state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
@@ -1004,10 +1008,12 @@ async function startAuto() {
   tickTimer = setInterval(() => {
     const now = nowSeconds();
     if (state.turnAt === null || !state.started) return render();
-    // With a template the schedule waits for the audio and only steps in when
-    // the window closes; without one it is all there is.
-    const deadline = state.templates.has(state.page) ? state.turnAt + armSlack() : state.turnAt;
-    if (now >= deadline) {
+    // When the page's ending is known, hearing it is the only thing that turns
+    // it. A clock cannot tell this piece from a different one, so letting it
+    // turn on time alone means any playing at all advances the score.
+    // Pages the reader could not parse have no such test, and fall back to time.
+    if (state.templates.has(state.page)) return render();
+    if (now >= state.turnAt) {
       state.turnedBy = "schedule";
       nextPage();
     } else render();

@@ -82,6 +82,21 @@ remove the pedal.
 Reading the measures out of the PDF replaced it. The template capture survives,
 but it now happens silently on every turn instead of being something to do.
 
+## Not a clock standing behind the matcher
+
+The schedule used to turn the page when its window closed with no match, so a
+missed detection would not strand the player. That is the wrong trade. A clock
+knows how much time has passed while someone played; it has no idea *what* they
+played. Under it, practising a different piece with the score open advances the
+pages, and so does a room that merely sounds busy — both were reproduced.
+
+Now a page whose ending the reader understood turns only when that ending is
+heard. Missing a turn costs one tap. Turning on the wrong music costs the
+performance, and quietly teaches the player that the thing cannot be trusted.
+
+Pages the reader could not parse keep the old behaviour, because for those
+there is nothing to match against and time is the only signal there is.
+
 ## Not a tempo setting
 
 There was a tempo field, and a tap-tempo button beside it. Both are gone.
