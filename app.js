@@ -23,27 +23,13 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31w sides-fixed-and-swappable";
+const BUILD = "2026-09-01a wink-only";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
 // --- Tuning constants ---
-const FFT_SIZE = 8192; // ~6 Hz bins at 48 kHz — enough to resolve pitch classes
-const HOP_MS = 100; // one chroma frame per 100ms; also the matcher's rate
-const TEMPLATE_S = 4.0; // context length; one measure is not distinctive enough
-const TEMPLATE_SONORITIES = 10; // how much of a page's ending the score template covers
-const BUFFER_S = 12; // rolling history the matcher searches
-const MATCH_THRESHOLD = 0.85; // measured: ~0.9 at a page end, ~0.5 elsewhere
-const MATCH_HOLD_FRAMES = 3; // consecutive confident frames before turning
-const ARM_WINDOW_S = 3.5; // floor for the detection window, either side
-const ARM_WINDOW_FRACTION = 0.15; // widen it for a performance taken off-tempo
-const TONALITY_MIN = 0.55; // measured: hiss and hum reach 0.40, played notes 0.94
-const TONAL_RUN = 3; // frames of held pitch before it counts as a note (300ms)
-const SILENCE_HOLD_S = 1.0; // silence shorter than this is a rest, not a stop
-const MIN_HZ = 70;
-const MAX_HZ = 5000;
 const MAX_CACHED_PAGES = 6;
 const MAX_DPR = 2; // a 3x phone triples raster cost for no gain on a score
 
@@ -51,23 +37,8 @@ const state = {
   doc: null,
   page: 1,
   pageCount: 0,
-  mode: "manual", // "manual" | "auto"
-  armed: false,
-  confidence: 0,
-  hold: 0,
-  pageStartedAt: 0, // seconds; when the current page began
-  // How long a bar lasts, measured from the player rather than typed in. The
-  // seed only has to be the right order of magnitude; the first audio-driven
-  // turn replaces it with the real thing.
-  secondsPerBar: 2.0,
-  tempoKnown: false,
-  leadBars: 1,
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
-  sonorities: new Map(), // page -> harmonies read off the page, in order
   templates: new Map(), // page -> chroma heard just before a previous turn
-  playing: false, // is anything actually sounding right now
-  tonality: 0, // 0.29 is a flat chroma (noise); a played note is well above
-  started: false, // has the performance begun at all
   turnAt: null, // seconds; when the schedule says this page ends
   turnedBy: null, // what fired the last turn
   turnLog: [], // recent turns with their cause, so none of them is a mystery
@@ -78,10 +49,10 @@ const el = {};
 for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
-  "setupPanel", "setupToggle", "startBtn", "leadInput", "diag",
-  "gestureCheck", "camPreview", "gestureLive", "gestureAsym", "gestureStatus", "calibrateBtn",
+  "setupPanel", "setupToggle", "diag", "allowBtn",
+  "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "swapField", "swapInput",
-  "meter", "meterFill", "meterValue", "setupStatus",
+  "setupStatus",
 ]) el[id] = document.getElementById(id);
 
 /**
@@ -179,12 +150,9 @@ async function openScore(file) {
   state.doc = doc;
   state.pageCount = doc.numPages;
   state.page = 1;
-  state.templates.clear();
   state.measures.clear();
-  state.sonorities.clear();
   pageCache.clear();
   pending.clear();
-  resyncTiming();
 
   el.scoreEmpty.hidden = true;
   el.scoreCanvas.hidden = false;
@@ -197,19 +165,14 @@ async function openScore(file) {
   render();
 
   for (let n = 1; n <= doc.numPages; n++) {
-    const read = await readPage(doc, n);
-    state.measures.set(n, read.measures);
-    state.sonorities.set(n, read.sonorities);
+    state.measures.set(n, await readPage(doc, n));
   }
-  buildTemplates();
-  state.tempoKnown = false;
   const counts = [...state.measures.values()];
-  if (counts.every((c) => c === null)) {
-    setStatus("No staves found — a scanned score can only be turned by hand.");
-  } else {
-    setStatus(`Measures per page: ${counts.map((c) => c ?? "?").join(", ")}. Press Start and play.`);
-  }
-  resyncTiming();
+  setStatus(
+    counts.every((c) => c === null)
+      ? `${doc.numPages} pages. No staves found — this looks like a scan.`
+      : `${doc.numPages} pages, measures: ${counts.map((c) => c ?? "?").join(", ")}.`
+  );
   render();
 }
 
@@ -296,17 +259,14 @@ function findStaves(ys) {
 }
 
 /**
- * Everything readable on one page: how many measures it holds, and the
- * harmonies drawn on it in order.
- * @returns {{measures: number|null, sonorities: Array}}
+ * Measures drawn on one page, counted from the file's own barlines.
+ * @returns {number|null} null when the page has no readable staves
  */
 async function readPage(doc, n) {
-  const empty = { measures: null, sonorities: [] };
   const page = await doc.getPage(n);
   const segs = extractSegments(await page.getOperatorList());
-  const textContent = await page.getTextContent();
   page.cleanup();
-  if (!segs.length) return empty;
+  if (!segs.length) return null;
 
   const xs = segs.flatMap((s) => [s[0], s[2]]);
   const width = Math.max(...xs) - Math.min(...xs);
@@ -316,7 +276,7 @@ async function readPage(doc, n) {
   );
   const ys = [...new Set(horizontal.map((s) => Math.round(s[1] * 10) / 10))].sort((a, b) => a - b);
   const staves = findStaves(ys);
-  if (!staves.length) return empty;
+  if (!staves.length) return null;
 
   const staffHeight = staves[0].bottom - staves[0].top;
   const verticals = segs.filter((s) => Math.abs(s[2] - s[0]) < 1);
@@ -369,521 +329,7 @@ async function readPage(doc, n) {
     total += merged.length;
   }
 
-  const glyphs = readGlyphs(textContent, staves);
-  return { measures: total || null, sonorities: readSonorities(glyphs, staves, systems) };
-}
-
-// ============================================================
-// Reading the notes
-//
-// Glyphs carry no usable characters — the embedded font is a subset with
-// arbitrary codes — so they are classified by geometry instead. Advance width
-// against staff spacing separates noteheads from dots, clefs and accidentals,
-// and a clef glyph sits on its own reference line, which fixes the pitch of
-// every step above and below it.
-// ============================================================
-
-const CLEF_BOTTOM_DEGREE = { 2: 30, 4: 26, 6: 18 }; // treble G4 / alto C4 / bass F3
-const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6]; // F C G D A E B, as letter indices
-const FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3];
-const LETTER_SEMITONE = [0, 2, 4, 5, 7, 9, 11]; // C D E F G A B
-
-/**
- * Glyphs near a staff, with their staff step.
- *
- * Glyph codes only mean anything inside one font — a subset font numbers its
- * glyphs from zero, so the brace font's glyph 0 and the music font's notehead
- * are both U+0 and are not remotely the same thing. Everything downstream keys
- * on font and code together.
- */
-function readGlyphs(textContent, staves) {
-  const out = [];
-  for (const item of textContent.items) {
-    const code = item.str.codePointAt(0);
-    if (code === undefined || code === 32) continue;
-    if (!(item.width > 0)) continue; // braces and other zero-advance decoration
-    const x = item.transform[4];
-    const y = item.transform[5];
-    // Distance to the staff's *band*, not to its outermost lines: a note in the
-    // middle of one staff is further from both of its edges than a note sitting
-    // just outside a neighbouring staff, and picking the nearest edge hands it
-    // to the wrong staff — and so to the wrong clef.
-    let staff = null;
-    for (const st of staves) {
-      const d = y < st.top ? st.top - y : y > st.bottom ? y - st.bottom : 0;
-      if (!staff || d < staff.d) staff = { st, d };
-    }
-    if (!staff || staff.d > (staff.st.bottom - staff.st.top) * 1.5) continue;
-    out.push({
-      key: `${item.fontName}|${code}`,
-      font: item.fontName,
-      x,
-      y,
-      staff: staff.st,
-      width: item.width / staff.st.spacing,
-      step: Math.round((y - staff.st.top) / (staff.st.spacing / 2)),
-    });
-  }
-  return out;
-}
-
-/**
- * Which glyph codes are noteheads.
- *
- * Black and void heads are both a little over one staff space wide. Dots are
- * half that, clefs several times it, and accidentals fall just under — close
- * enough that the width test alone is not safe, so a class must also move
- * around vertically. Clefs and key signatures never do.
- */
-function noteheadCodes(glyphs) {
-  const classes = new Map();
-  for (const g of glyphs) {
-    const c = classes.get(g.key) || { widths: [], steps: [], font: g.font };
-    c.widths.push(g.width);
-    c.steps.push(g.step);
-    classes.set(g.key, c);
-  }
-
-  const keys = new Set();
-  const fonts = new Set();
-  for (const [key, c] of classes) {
-    if (c.steps.length < 3) continue;
-    const w = c.widths.slice().sort((a, b) => a - b)[c.widths.length >> 1];
-    if (w < 1.15 || w > 1.7) continue;
-    const mean = c.steps.reduce((a, b) => a + b, 0) / c.steps.length;
-    const spread = c.steps.reduce((a, b) => a + (b - mean) ** 2, 0) / c.steps.length;
-    if (spread < 0.5) continue; // a key signature repeats one step exactly
-    keys.add(key);
-    fonts.add(c.font);
-  }
-  // Whichever font drew the noteheads drew the clefs and accidentals too. Page
-  // numbers and titles are the right size to be mistaken for either.
-  return { keys, fonts };
-}
-
-/** The clef on a staff, as the diatonic degree of its bottom line. */
-function clefDegree(glyphs, staff) {
-  const wide = glyphs
-    .filter((g) => g.staff === staff && g.width > 2.5)
-    .sort((a, b) => a.x - b.x);
-  for (const g of wide) {
-    const deg = CLEF_BOTTOM_DEGREE[g.step];
-    if (deg !== undefined) return deg;
-  }
-  return CLEF_BOTTOM_DEGREE[2]; // treble is the safe default
-}
-
-/** Letters altered by the key signature, from the accidentals after the clef. */
-function keySignature(glyphs, staff, bottomDegree, firstNoteX) {
-  const accidentals = glyphs.filter(
-    (g) => g.staff === staff && g.x < firstNoteX && g.width > 0.8 && g.width < 1.15
-  );
-  if (!accidentals.length) return new Map();
-
-  // A key signature always starts on the same letter: sharps on F, flats on B.
-  // Reading the direction of the run instead fails on a signature of one, where
-  // there is no direction to read.
-  accidentals.sort((a, b) => a.x - b.x);
-  const firstLetter = (((bottomDegree + accidentals[0].step) % 7) + 7) % 7;
-  const flats = firstLetter === 6;
-  const order = flats ? FLAT_ORDER : SHARP_ORDER;
-  const shift = flats ? -1 : 1;
-
-  const map = new Map();
-  for (let i = 0; i < Math.min(accidentals.length, 7); i++) map.set(order[i], shift);
-  return map;
-}
-
-/** Pitch class 0..11 for a notehead. */
-function pitchClass(step, bottomDegree, key) {
-  const degree = bottomDegree + step;
-  const letter = ((degree % 7) + 7) % 7;
-  return (LETTER_SEMITONE[letter] + (key.get(letter) || 0) + 120) % 12;
-}
-
-/**
- * The page's music as a sequence of sonorities — noteheads sharing an x are
- * sounding together. Durations are ignored on purpose: the matcher warps time,
- * so the order of the harmonies is all it needs.
- */
-function readSonorities(glyphs, staves, systems) {
-  const { keys, fonts } = noteheadCodes(glyphs);
-  const spacing = staves[0].spacing;
-  const events = [];
-
-  for (const staff of staves) {
-    const staffGlyphs = glyphs.filter((g) => g.staff === staff && fonts.has(g.font));
-    const notes = staffGlyphs.filter((g) => keys.has(g.key)).sort((a, b) => a.x - b.x);
-    if (!notes.length) continue;
-    const bottom = clefDegree(staffGlyphs, staff);
-    const key = keySignature(staffGlyphs, staff, bottom, notes[0].x);
-    const system = systems.findIndex((sys) => staff.top >= sys.top - 1 && staff.bottom <= sys.bottom + 1);
-    for (const n of notes) {
-      events.push({ system: system < 0 ? 0 : system, x: n.x, pc: pitchClass(n.step, bottom, key) });
-    }
-  }
-
-  events.sort((a, b) => a.system - b.system || a.x - b.x);
-
-  const out = [];
-  for (const e of events) {
-    const last = out[out.length - 1];
-    if (last && last.system === e.system && e.x - last.x < spacing * 0.8) last.pcs.add(e.pc);
-    else out.push({ system: e.system, x: e.x, pcs: new Set([e.pc]) });
-  }
-  return out;
-}
-
-/**
- * Expected chroma for the moment each page should turn.
- *
- * The template comes from the page itself, so the very first run through a
- * score can be corrected by the music — nothing has to be heard first. It ends
- * `leadBars` before the page does, because matching the final chord would fire
- * the turn exactly when the page is already over.
- */
-function buildTemplates() {
-  state.templates.clear();
-  for (const [n, sonorities] of state.sonorities) {
-    const bars = state.measures.get(n);
-    if (!bars || sonorities.length < TEMPLATE_SONORITIES * 1.5) continue;
-    const drop = Math.round(state.leadBars * (sonorities.length / bars));
-    const end = sonorities.length - drop;
-    if (end < TEMPLATE_SONORITIES) continue;
-    state.templates.set(n, chromaOf(sonorities.slice(end - TEMPLATE_SONORITIES, end)));
-  }
-}
-
-/** One unit-length chroma frame per sonority. */
-function chromaOf(sonorities) {
-  return sonorities.map((s) => {
-    const v = new Float32Array(12);
-    for (const pc of s.pcs) v[pc] = 1;
-    let norm = Math.sqrt([...v].reduce((a, b) => a + b * b, 0)) || 1;
-    for (let i = 0; i < 12; i++) v[i] /= norm;
-    return v;
-  });
-}
-
-// ============================================================
-// Scheduling — when this page runs out
-// ============================================================
-
-const secondsPerBar = () => state.secondsPerBar;
-
-/**
- * Set the moment this page is due to end, or null if it cannot be known.
- *
- * The lead is only subtracted once. After an early turn the anchor already sits
- * `leadBars` before the page's first bar, so every later page is exactly its
- * own length — subtracting again would put the app a bar further behind the
- * music on every page.
- */
-function scheduleTurn() {
-  const bars = state.measures.get(state.page);
-  if (!bars || state.page >= state.pageCount) {
-    state.turnAt = null;
-    return;
-  }
-  const lead = state.anchorIsEarly ? 0 : state.leadBars;
-  state.turnAt = state.pageStartedAt + (bars - lead) * secondsPerBar();
-}
-
-/** Bars left on this page. Diagnostics only — never shown over the score. */
-function barsRemaining(now) {
-  if (state.turnAt === null) return null;
-  return Math.max(0, (state.turnAt - now) / secondsPerBar());
-}
-
-/**
- * How far either side of the estimate to listen.
- *
- * Until a page has been timed there is no tempo to speak of, so the window
- * covers most of the page rather than pretending to know where the ending is.
- * Once one page has been heard out, it tightens to a couple of bars.
- */
-function armSlack() {
-  if (!state.tempoKnown) {
-    const bars = state.measures.get(state.page) || 8;
-    return bars * secondsPerBar() * 0.6;
-  }
-  return Math.max(ARM_WINDOW_S, secondsPerBar() * 2);
-}
-
-/** True while the audio detector should be listening. */
-function isArmed(now) {
-  if (state.turnAt === null) return false;
-  return Math.abs(now - state.turnAt) <= armSlack();
-}
-
-/**
- * Re-anchor to a known position. Called on every turn — automatic or manual —
- * which is what keeps timing error from accumulating across pages.
- */
-function resyncTiming() {
-  state.pageStartedAt = nowSeconds();
-  state.hold = 0;
-  scheduleTurn();
-}
-
-// ============================================================
-// Audio input and chroma features
-// ============================================================
-
-let audioCtx = null;
-let micStream = null;
-let analyser = null;
-let featureTimer = null;
-let spectrum = null;
-let silentSince = null;
-let heardAnything = false;
-let tonalRun = 0;
-const chromaLog = []; // {t, c: Float32Array(12)}, oldest first
-
-/**
- * Is the instrument sounding?
- *
- * Judged by whether the sound has pitch, not by how loud it is. Loudness fails
- * in exactly the case that matters: a quiet room still has a floor, and any
- * level-based gate eventually decides that the floor is a performance. Room
- * noise is broadband and spreads evenly across the twelve pitch classes, so its
- * chroma is flat — a unit vector spread over twelve bins peaks at 0.29 — while
- * a played note concentrates most of its energy into one or two of them.
- *
- * Near-silence never gets this far: chromaFrom ignores bins at the analyser's
- * floor, so a silent input produces a zero vector and no tonality at all.
- */
-function updatePlaying(chroma) {
-  let peak = 0;
-  for (let i = 0; i < 12; i++) if (chroma[i] > peak) peak = chroma[i];
-
-  // Random noise lands on one pitch class often enough to clear the threshold
-  // for a single frame. A played note holds for hundreds of milliseconds, so
-  // requiring a run of frames separates them without touching the threshold.
-  tonalRun = peak > TONALITY_MIN ? tonalRun + 1 : 0;
-  const tonal = tonalRun >= TONAL_RUN;
-
-  if (tonal) {
-    silentSince = null;
-    heardAnything = true;
-  } else if (silentSince === null) {
-    silentSince = nowSeconds();
-  }
-
-  state.tonality = peak;
-  // A rest is silence too — but only once something has actually sounded.
-  // Without that guard the grace period counts as playing from the first
-  // frame, and an empty room starts the clock.
-  state.playing = tonal || (heardAnything && nowSeconds() - silentSince < SILENCE_HOLD_S);
-}
-
-async function startListening() {
-  if (analyser) return;
-
-  micStream = await navigator.mediaDevices.getUserMedia({
-    // Every one of these mangles music: gain control pumps, noise suppression
-    // eats sustained tones, echo cancellation subtracts what the room plays.
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    },
-  });
-
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === "suspended") await audioCtx.resume();
-
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = FFT_SIZE;
-  analyser.smoothingTimeConstant = 0; // smoothing would blur note onsets
-  audioCtx.createMediaStreamSource(micStream).connect(analyser);
-  // Deliberately not connected to the destination — that is a feedback loop.
-
-  spectrum = new Float32Array(analyser.frequencyBinCount);
-  featureTimer = setInterval(onFeatureFrame, HOP_MS);
-}
-
-function stopListening() {
-  clearInterval(featureTimer);
-  featureTimer = null;
-  if (micStream) micStream.getTracks().forEach((t) => t.stop());
-  micStream = null;
-  analyser = null;
-  if (audioCtx) audioCtx.close();
-  audioCtx = null;
-}
-
-/**
- * Fold an FFT magnitude spectrum into 12 pitch classes.
- *
- * Chroma is used because it is forgiving in exactly the ways a performance
- * needs: a fluffed note moves one bin, an octave doubling moves none, and a
- * different instrument or room changes the timbre but not the pitch classes.
- */
-function chromaFrom(db) {
-  const out = new Float32Array(12);
-  const binHz = audioCtx.sampleRate / FFT_SIZE;
-
-  for (let i = 1; i < db.length; i++) {
-    const f = i * binHz;
-    if (f < MIN_HZ || f > MAX_HZ) continue;
-    if (db[i] <= -90) continue; // the analyser's floor; nothing but noise below
-    const mag = 10 ** (db[i] / 20);
-    const pc = Math.round(12 * Math.log2(f / 440) + 69) % 12;
-    out[(pc + 12) % 12] += mag;
-  }
-
-  let norm = 0;
-  for (let i = 0; i < 12; i++) norm += out[i] * out[i];
-  norm = Math.sqrt(norm);
-  if (norm > 0) for (let i = 0; i < 12; i++) out[i] /= norm;
-  return out;
-}
-
-function onFeatureFrame() {
-  analyser.getFloatFrequencyData(spectrum);
-  const chroma = chromaFrom(spectrum);
-  updatePlaying(chroma);
-  chromaLog.push({ t: nowSeconds(), c: chroma });
-
-  const cutoff = nowSeconds() - BUFFER_S;
-  while (chromaLog.length && chromaLog[0].t < cutoff) chromaLog.shift();
-
-  if (state.mode !== "auto") return;
-
-  // The schedule counts *played* time, not wall time. Before the first note it
-  // has not started, and while nothing is sounding it does not advance — a page
-  // must never turn under a player who is sitting still.
-  if (!state.started) {
-    if (!state.playing) {
-      state.pageStartedAt = nowSeconds();
-      scheduleTurn();
-      return;
-    }
-    state.started = true;
-    resyncTiming();
-    setStatus("Following the music.");
-  } else if (!state.playing) {
-    // Hold the schedule where it is rather than letting it run through a
-    // silence. On the last page there is no turn to postpone.
-    state.pageStartedAt += HOP_MS / 1000;
-    if (state.turnAt !== null) state.turnAt += HOP_MS / 1000;
-    return;
-  }
-
-  detect();
-}
-
-/** The last `seconds` of chroma frames, oldest first. */
-function recentFrames(seconds) {
-  const from = nowSeconds() - seconds;
-  return chromaLog.filter((f) => f.t >= from).map((f) => f.c);
-}
-
-// ============================================================
-// Matcher — subsequence DTW against the rehearsal template
-//
-// DTW so a performance taken faster or slower than the rehearsal still matches.
-// Subsequence — a free start column — so the template can begin anywhere in the
-// buffer; only its *end* is pinned to now, which is the moment being detected.
-// ============================================================
-
-function distance(a, b) {
-  let dot = 0;
-  for (let i = 0; i < 12; i++) dot += a[i] * b[i];
-  return 1 - dot; // both vectors are unit length, so this is cosine distance
-}
-
-/**
- * How well `template` explains the run of live frames ending at now.
- * @returns {number} 0..1
- */
-function matchScore(live, template) {
-  const m = template.length;
-  const n = live.length;
-  if (m < 4 || n < m) return 0;
-
-  let prev = new Float64Array(n);
-  let curr = new Float64Array(n);
-  // Cost alone rewards squeezing the template into a short stretch of live
-  // audio, which fires early. Carrying the path length and dividing by it
-  // prices a compressed alignment honestly.
-  let prevLen = new Float64Array(n);
-  let currLen = new Float64Array(n);
-
-  for (let j = 0; j < n; j++) {
-    prev[j] = distance(template[0], live[j]); // free start
-    prevLen[j] = 1;
-  }
-
-  for (let i = 1; i < m; i++) {
-    const d0 = distance(template[i], live[0]);
-    curr[0] = prev[0] + d0;
-    currLen[0] = prevLen[0] + 1;
-
-    for (let j = 1; j < n; j++) {
-      let best = prev[j - 1];
-      let len = prevLen[j - 1];
-      if (prev[j] < best) {
-        best = prev[j];
-        len = prevLen[j];
-      }
-      if (curr[j - 1] < best) {
-        best = curr[j - 1];
-        len = currLen[j - 1];
-      }
-      curr[j] = best + distance(template[i], live[j]);
-      currLen[j] = len + 1;
-    }
-
-    let swap = prev; prev = curr; curr = swap;
-    swap = prevLen; prevLen = currLen; currLen = swap;
-  }
-
-  // Pinned to the newest frame: the template must have just finished.
-  return Math.max(0, 1 - prev[n - 1] / prevLen[n - 1]);
-}
-
-/**
- * Runs on every chroma frame. Where the music actually is beats where the clock
- * thinks it is, so a confident match turns the page. The schedule still holds
- * the outside of the window: if nothing matches by the time it closes, the page
- * turns anyway rather than stranding the player.
- */
-function detect() {
-  const now = nowSeconds();
-  state.armed = isArmed(now);
-
-  const template = state.templates.get(state.page);
-  if (!state.armed || !template) {
-    state.confidence = 0;
-    state.hold = 0;
-    return;
-  }
-
-
-  state.confidence = matchScore(recentFrames(TEMPLATE_S * 1.6), template);
-
-  // The peak is narrow — a couple of frames wide when the performance is off
-  // the expected tempo — so demanding a long confident run misses it outright.
-  // Two frames, at a threshold set from the measured gap between a real page
-  // ending and everything else.
-  state.hold = state.confidence >= MATCH_THRESHOLD ? state.hold + 1 : 0;
-  if (state.hold >= MATCH_HOLD_FRAMES) {
-    state.turnedBy = "audio";
-    nextPage();
-  }
-}
-
-/**
- * Remember how the end of this page sounded. Nobody is asked to do this — it
- * happens on every turn, so a second run through the same score is guided by
- * the music itself rather than by the clock alone.
- */
-function captureTemplate() {
-  if (!analyser) return;
-  const frames = recentFrames(TEMPLATE_S);
-  if (frames.length >= 8) state.templates.set(state.page, frames);
+  return total || null;
 }
 
 // ============================================================
@@ -1014,22 +460,21 @@ function notePeaks(left, right, net) {
  * which is a strange thing to have to do to answer "is it saved?".
  */
 function showCalibrationState() {
-  if (lastWinkReport) return; // do not paint over the evidence
-  el.gestureStatus.hidden = false;
+  const target = el.calibStatus;
   if (calibration) {
-    el.gestureStatus.textContent =
+    target.textContent =
       `Calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser ` +
       `(separation x${(calibration.separation ?? 0).toFixed(1)}, threshold ` +
       `${(calibration.threshold ?? 0).toFixed(2)}). Recalibrate any time to replace it.`;
   } else if (staleCalibration) {
-    el.gestureStatus.textContent =
+    target.textContent =
       "A saved calibration was discarded — it was measured the old way, before " +
       "the switch to eyelid geometry, so its numbers mean nothing now. " +
       "Calibrate once more and it will stick.";
   } else {
-    el.gestureStatus.textContent =
-      "Not calibrated — running on defaults. Switch on Wink to turn, then press " +
-      "Calibrate. It is stored in this browser and only needs doing once.";
+    target.textContent =
+      "Not calibrated — running on defaults. Press Calibrate at the top of the " +
+      "screen if winks are missed. It is stored here and only needs doing once.";
   }
 }
 
@@ -1102,7 +547,6 @@ async function startGesture() {
   await el.camPreview.play();
 
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
-  el.gestureLive.hidden = false;
   el.holdField.hidden = false;
   el.swapField.hidden = false;
 }
@@ -1116,7 +560,6 @@ function stopGesture() {
   camStream = null;
   el.camPreview.srcObject = null;
   el.camPreview.hidden = true;
-  el.gestureLive.hidden = true;
   el.holdField.hidden = true;
   el.swapField.hidden = true;
   landmarker?.close();
@@ -1342,9 +785,8 @@ function gestureFrame() {
     state.turnedBy = "wink";
     // Say what the numbers were, every time, so a wrong turn explains itself
     // without anyone having to catch it happening.
-    el.gestureStatus.hidden = false;
-    el.gestureStatus.textContent = traceReport(direction > 0 ? "wink forward" : "wink back");
-    lastWinkReport = el.gestureStatus.textContent;
+    lastWinkReport = traceReport(direction > 0 ? "wink forward" : "wink back");
+    el.calibStatus.textContent = lastWinkReport;
     if (direction > 0) nextPage();
     else prevPage();
   }
@@ -1363,14 +805,20 @@ const PHASES = [
   { key: "left", seconds: 6, prompt: "Wink your LEFT eye and hold. Repeat a few times." },
 ];
 
+function setCardMessage(text) {
+  el.gestureStatus.hidden = !text;
+  el.gestureStatus.textContent = text || "";
+}
+
 function startCalibration() {
   if (calibrating) {
     // A second press cancels: a calibration that cannot see a face would
     // otherwise wait forever with no way out.
     calibrating = null;
     el.camPreview.hidden = true;
-    el.gestureStatus.textContent = "Calibration cancelled.";
+    setCardMessage("");
     el.calibrateBtn.textContent = "Calibrate";
+    showCalibrationState();
     return;
   }
   el.calibrateBtn.textContent = "Cancel";
@@ -1387,8 +835,7 @@ function startCalibration() {
 function nextCalibrationPhase() {
   const phase = PHASES[calibrating.index];
   calibrating.until = nowSeconds() + phase.seconds;
-  el.gestureStatus.hidden = false;
-  el.gestureStatus.textContent = phase.prompt;
+  setCardMessage(phase.prompt);
 }
 
 function percentile(values, p) {
@@ -1465,11 +912,12 @@ function finishCalibration() {
   // what a threshold of 0.15 from a wink measured at 0.10 amounted to.
   const closedPeak = Math.max(eyePeaks.right, eyePeaks.left);
   if (closedPeak < 0.35) {
-    el.gestureStatus.textContent =
+    setCardMessage(
       `The eyes never came apart — peak difference ${closedPeak.toFixed(2)}, expected above 0.6.\n` +
       "The face model is not seeing the wink at all, so no threshold will help. " +
       "More light on your face, or moving closer to the camera, is what to try. " +
-      "Nothing was saved.";
+      "Nothing was saved."
+    );
     return;
   }
 
@@ -1491,10 +939,11 @@ function finishCalibration() {
       : "Not reliable on this face and setup. Use the pedal, the tap zones, or an arrow key instead — " +
         "the app will not pretend otherwise.";
 
-  el.gestureStatus.textContent =
-    `blink noise ${noiseLevel.toFixed(2)} · right wink ${rightLevel.toFixed(2)} · ` +
-    `left wink ${leftLevel.toFixed(2)} · separation x${separation.toFixed(1)} · ` +
-    `threshold ${threshold.toFixed(2)} · eye closed to ${closedPeak.toFixed(2)}\n${verdict}`;
+  setCardMessage(
+    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)}\n${verdict}`
+  );
+  showCalibrationState();
+  setTimeout(() => setCardMessage(""), 12000); // then get off the score
 }
 
 // ============================================================
@@ -1533,51 +982,17 @@ function turnTo(n) {
   });
   if (state.turnLog.length > 6) state.turnLog.shift();
   state.turnedBy = null;
-  if (next === state.page + 1) {
-    captureTemplate(); // only forward turns mark a page ending
-    // A page heard out from one early turn to the next spans exactly its own
-    // length, so its duration divided by its measures is the bar length. This
-    // is why there is no tempo field: the performance states its own tempo.
-    const bars = state.measures.get(state.page);
-    if (state.turnedBy === "audio" && state.anchorIsEarly && bars) {
-      state.secondsPerBar = (nowSeconds() - state.pageStartedAt) / bars;
-      state.tempoKnown = true;
-    }
-    state.anchorIsEarly = true;
-  }
   state.page = next;
   showPage(next);
-  resyncTiming(); // every turn re-anchors the schedule, however it was triggered
   render();
 }
 
 const nextPage = () => turnTo(state.page + 1);
 const prevPage = () => turnTo(state.page - 1);
 
-/**
- * Drop out of automatic mode without turning. Preferred over guessing: a page
- * turned at the wrong moment breaks a performance, a missed one costs a tap.
- */
-function fallBackToManual(reason) {
-  state.mode = "manual";
-  state.armed = false;
-  state.confidence = 0;
-  render();
-  setStatus(`Auto off — ${reason}.`);
-}
-
 function renderDiag() {
-  const pages = [...state.measures.entries()]
-    .map(([n, m]) => `${m ?? "?"}${state.templates.has(n) ? "" : "!"}`)
-    .join(" ");
-  const flag = (on, label) => (on ? `<b>${label}</b>` : label);
   el.diag.innerHTML = [
-    `bars/page ${pages || "—"}   (! = no template, turns on time)`,
-    `mic ${analyser ? "on" : "OFF"}   tonality ${state.tonality.toFixed(2)} / ${TONALITY_MIN}   ` +
-      `${flag(state.playing, "playing")}   ${flag(state.started, "started")}`,
-    `match ${state.confidence.toFixed(2)} / ${MATCH_THRESHOLD}   ` +
-      `${flag(state.armed, "armed")}   last turn: ${state.turnedBy || "—"}`,
-    `bars left ${(barsRemaining(nowSeconds()) ?? 0).toFixed(1)}   build ${BUILD}`,
+    `camera ${landmarker ? "on" : "off"}   build ${BUILD}`,
     state.turnLog.length
       ? "turns: " +
         state.turnLog
@@ -1599,90 +1014,11 @@ function showError(message) {
 
 function render() {
   el.hudPage.textContent = state.pageCount ? `${state.page} / ${state.pageCount}` : "— / —";
-  el.hudMode.textContent =
-    state.mode !== "auto" ? "Manual" : state.started ? "Auto" : "Waiting";
+  el.hudMode.textContent = landmarker ? "Wink" : "Manual";
+  el.hudArmed.hidden = true;
   el.prevBtn.disabled = state.page <= 1;
   el.nextBtn.disabled = state.page >= state.pageCount;
-
-  el.hudArmed.hidden = !(state.mode === "auto" && state.armed);
-
-  el.meter.hidden = !(state.mode === "auto" && state.templates.has(state.page));
-  el.meterFill.style.width = `${Math.round(state.confidence * 100)}%`;
-  el.meterFill.classList.toggle("over", state.confidence >= MATCH_THRESHOLD);
-  el.meterValue.textContent = state.confidence.toFixed(2);
-
-  const lastBy = state.turnLog[state.turnLog.length - 1]?.by;
-  if (state.mode === "auto" && lastBy) {
-    el.hudMode.textContent =
-      lastBy === "audio" ? "Auto · heard" : lastBy === "wink" ? "Auto · wink" : "Auto · " + lastBy;
-  }
   renderDiag();
-  el.startBtn.textContent = state.mode === "auto" ? "Stop" : "Start";
-  el.startBtn.disabled = !state.doc || !state.measures.get(1);
-}
-
-// ============================================================
-// Transport
-// ============================================================
-
-let tickTimer = null;
-
-async function startAuto() {
-  if (state.mode === "auto") return stopAuto();
-
-  state.mode = "auto";
-  heardAnything = false;
-  tonalRun = 0;
-  silentSince = null;
-  collapseSetup(true); // it covers the score, and there is nothing left to set
-  turnTo(1);
-  state.anchorIsEarly = false; // the player starts at bar 1, not ahead of it
-  resyncTiming();
-
-  state.tempoKnown = false; // each run measures the tempo afresh
-  let heard = true;
-  try {
-    await startListening();
-    state.started = false; // wait for the first note before any clock runs
-    setStatus("Ready — start playing.");
-  } catch (err) {
-    // Without a microphone there is nothing to wait for and nothing to confirm
-    // with, so the clock starts here and the tempo has to be right.
-    heard = false;
-    state.started = true;
-    setStatus(`No microphone (${err.message}) — turning on the clock alone.`);
-  }
-
-  tickTimer = setInterval(() => {
-    const now = nowSeconds();
-    if (state.turnAt === null || !state.started) return render();
-    // When the page's ending is known, hearing it is the only thing that turns
-    // it. A clock cannot tell this piece from a different one, so letting it
-    // turn on time alone means any playing at all advances the score.
-    // Pages the reader could not parse have no such test, and fall back to time.
-    if (state.templates.has(state.page)) return render();
-    if (now >= state.turnAt) {
-      state.turnedBy = "schedule";
-      nextPage();
-    } else render();
-  }, 100);
-
-  render();
-  if (heard) el.hudMode.textContent = "Waiting";
-}
-
-function stopAuto() {
-  state.mode = "manual";
-  collapseSetup(false);
-  state.turnAt = null;
-  state.armed = false;
-  state.started = false;
-  state.playing = false;
-  clearInterval(tickTimer);
-  tickTimer = null;
-  stopListening();
-  render();
-  setStatus("Stopped.");
 }
 
 // ============================================================
@@ -1723,28 +1059,31 @@ el.prevBtn.addEventListener("click", () => {
   state.turnedBy = "tap zone";
   prevPage();
 });
-el.startBtn.addEventListener("click", startAuto);
-
-el.gestureCheck.addEventListener("change", async () => {
-  if (!el.gestureCheck.checked) {
-    stopGesture();
-    showCalibrationState();
-    return;
-  }
-  el.gestureStatus.hidden = false;
-  el.gestureStatus.textContent = "Loading the face model…";
+/**
+ * Start the camera as soon as the app opens.
+ *
+ * The permission prompt appears the first time and the browser remembers the
+ * answer, so every visit after that starts looking without being asked and
+ * without anything to switch on. If it is refused or blocked, a button appears
+ * to try again rather than the app quietly doing nothing.
+ */
+async function beginWatching() {
+  el.allowBtn.hidden = true;
+  setCardMessage("");
   try {
     await startGesture();
-    el.gestureStatus.textContent = calibration
-      ? `Ready — calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser. ` +
-        `Right eye forward, left eye back.`
-      : "Ready, on defaults. Calibrating tunes it to your face and is remembered — " +
-        "you only do it once.";
+    showCalibrationState();
   } catch (err) {
-    el.gestureCheck.checked = false;
-    el.gestureStatus.textContent = `Camera unavailable — ${err.message}`;
+    el.allowBtn.hidden = false;
+    setCardMessage(
+      `Camera unavailable — ${err.message}. Pages still turn with the arrow ` +
+        "keys, a pedal, or by tapping the sides of the score."
+    );
   }
-});
+  render();
+}
+
+el.allowBtn.addEventListener("click", beginWatching);
 
 el.calibrateBtn.addEventListener("click", startCalibration);
 
@@ -1761,13 +1100,6 @@ el.holdInput.addEventListener("change", () => {
   try {
     localStorage.setItem(HOLD_KEY, String(gestureHoldMs));
   } catch {}
-});
-
-el.leadInput.addEventListener("change", () => {
-  state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
-  buildTemplates(); // the template ends where the lead says the page does
-  scheduleTurn();
-  render();
 });
 
 function collapseSetup(collapsed) {
@@ -1812,10 +1144,11 @@ loadCalibration();
 loadHold();
 showCalibrationState();
 render();
+beginWatching();
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
 window.__autopage = {
-  state, matchScore, chromaLog, recentFrames, readPage, chromaOf, startListening,
-  startGesture, stopGesture, get calibration() { return calibration; },
+  state, readPage, startGesture, stopGesture,
+  get calibration() { return calibration; },
 };

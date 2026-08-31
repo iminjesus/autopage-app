@@ -46,6 +46,19 @@
       <button class="nav-btn" id="nextBtn" aria-label="Next page">›</button>
     </div>
 
+    <!-- Camera and calibration, kept near the top edge: that is where the
+         camera is, and reading a prompt in the far corner means looking away
+         from the lens at the moment the gesture is being measured. -->
+    <section class="watch" id="watch">
+      <div class="watch-row">
+        <span id="gestureAsym" class="watch-live">Starting the camera…</span>
+        <button id="calibrateBtn" class="btn btn-secondary btn-small">Calibrate</button>
+      </div>
+      <video id="camPreview" class="cam" playsinline muted hidden></video>
+      <div class="trainer-status" id="gestureStatus" hidden></div>
+      <button id="allowBtn" class="btn btn-primary btn-block" hidden>Allow camera</button>
+    </section>
+
     <!-- ===== Setup panel ===== -->
     <section class="panel" id="setupPanel" hidden>
       <button class="panel-head" id="setupToggle" aria-expanded="true">
@@ -55,60 +68,23 @@
 
       <div class="panel-body">
         <p class="panel-desc">
-          AutoPage reads the measures and the notes out of the PDF, then listens
-          for the end of each page. Nothing to set up, and no tempo to enter —
-          it measures that from your playing.
+          Wink your right eye to turn forward, your left to go back. The camera
+          runs locally and nothing leaves this device.
         </p>
 
-        <label class="field">
-          <span>Turn this many bars early</span>
-          <input type="number" id="leadInput" min="0" max="4" step="0.5" value="1" />
+        <label class="field" id="holdField" hidden>
+          <span>Wink length (ms)</span>
+          <input type="number" id="holdInput" min="50" max="400" step="10" value="70" />
         </label>
 
-        <button id="startBtn" class="btn btn-primary btn-block" disabled>Start</button>
+        <label class="field field-check" id="swapField" hidden>
+          <input type="checkbox" id="swapInput" />
+          <span>Swap sides — if the wrong eye turns forward</span>
+        </label>
 
-        <!-- Live match confidence. Visible because the whole design rests on
-             this number staying low except at a real page ending. -->
-        <div class="meter" id="meter" hidden>
-          <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
-          <span class="meter-value" id="meterValue">0.00</span>
-        </div>
-
-        <!-- ===== Wink to turn ===== -->
-        <div class="gesture">
-          <label class="field field-check">
-            <input type="checkbox" id="gestureCheck" />
-            <span>Wink to turn — right eye forward, left eye back</span>
-          </label>
-
-          <video id="camPreview" class="cam" playsinline muted hidden></video>
-
-          <div class="gesture-live" id="gestureLive" hidden>
-            <span id="gestureAsym">—</span>
-            <button id="calibrateBtn" class="btn btn-secondary btn-small">Calibrate</button>
-          </div>
-
-          <label class="field" id="holdField" hidden>
-            <span>Wink length (ms)</span>
-            <input type="number" id="holdInput" min="50" max="400" step="10" value="70" />
-          </label>
-
-          <label class="field field-check" id="swapField" hidden>
-            <input type="checkbox" id="swapInput" />
-            <span>Swap sides — if the wrong eye turns forward</span>
-          </label>
-          <div class="trainer-status" id="gestureStatus" hidden></div>
-        </div>
-
+        <div class="trainer-status" id="calibStatus"></div>
         <div class="trainer-status" id="setupStatus">Open a score to begin.</div>
-
-        <!-- Live state. Present because "it turns when I am not playing" is
-             impossible to diagnose from a description. -->
         <div class="diag" id="diag"></div>
-
-        <p class="hint">
-          Nothing is uploaded — audio is processed on this device.
-        </p>
       </div>
     </section>
   </main>

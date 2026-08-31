@@ -29,6 +29,12 @@ general solution and it is expensive:
 Both are avoidable here. Page turning needs one bit of information per page,
 not a continuous position estimate. See `decisions.md`.
 
+> **Note.** The audio matcher, the schedule and the tempo measurement described
+> below are not in the app at the moment. They worked — the measurements are
+> real — but the gesture is what is being used, so they were taken out rather
+> than left running. This section stays as the record of what was built and
+> what it measured.
+
 ## Architecture
 
 One flat, dependency-free static site, same as its sibling project

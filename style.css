@@ -329,6 +329,48 @@ body {
   margin-bottom: 2px;
 }
 
+/* Sits under the HUD at the top of the screen, because that is where the
+   camera is. A prompt in the bottom corner asks the player to look away from
+   the lens at the moment the gesture is being measured. */
+.watch {
+  position: absolute;
+  z-index: 3;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(440px, calc(100% - 32px));
+  background: rgba(23, 26, 33, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+
+.watch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.watch-live {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-line;
+}
+
+.watch-settings .field {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.watch .trainer-status {
+  margin-top: 8px;
+}
+
 .gesture {
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   margin-top: 14px;

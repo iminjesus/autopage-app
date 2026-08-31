@@ -7,40 +7,23 @@ while you play and turns the page when you reach the end of the current one.
 A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
-**Status: automatic turning works, with no setup and nothing to hear first.**
-Open a score, press Start, play. Winking turns pages too — right eye forward,
-left eye back — after a calibration that measures the gesture on your own face
-and tells you plainly if it will not work there. See
-[`docs/design.md`](docs/design.md) for the architecture and
-[`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
-than the more obvious ways.
+**Status: winking turns the pages.** Open a score and wink — right eye
+forward, left eye back. The camera starts on its own; the browser asks once and
+remembers. There is nothing to switch on and nothing to press.
 
-## The core idea
+Listening has been taken out for now. The audio matcher worked — it turned every
+page of the fixture on the music, at the written tempo and 20% faster, and
+refused a recording of the same rhythm with every pitch moved — but it is out
+of the way while the gesture is the thing being used. It is in the history, and
+so is the note reader that fed it: `git log` around "Read the notes off the
+page".
 
-An engraved PDF is not a picture of a score. It is the instructions that drew
-one — and those instructions are readable. Staff lines are long horizontal
-strokes; barlines are vertical strokes exactly one staff tall. So the app opens
-the file and **counts the measures on each page**, without recognising an image
-and without being told anything.
+## What still turns pages
 
-It reads the notes too. Glyph advance widths separate noteheads from dots,
-clefs and accidentals; a clef sits on its own reference line, which fixes the
-pitch of every step above and below it; and noteheads sharing an x are sounding
-together. So the app knows what the end of each page should *sound* like before
-a note has been played.
-
-That is what drives the turn. The microphone hears chroma, a subsequence DTW
-matches it against the expected ending, and the page turns where the music
-actually is — at whatever speed it is being played.
-
-A schedule sits behind it as a safety net, and times itself: a page heard out
-from one turn to the next spans exactly its own length, so its duration divided
-by its measures is the bar length. If the window ever closes with no match, the
-page turns on that estimate rather than stranding the player.
-
-This is not optical music recognition. OMR exists because *scanned* scores are
-pixels with no structure left. A PDF exported from LilyPond, MuseScore, Sibelius
-or Finale still carries its geometry, and reading it is parsing, not inference.
+- **Winking** — right eye forward, left eye back.
+- **Arrow keys, PageUp/PageDown, space** — which is also what a Bluetooth
+  page-turner pedal sends, so those work with no setup.
+- **Tapping** the outer sixth of either side of the score.
 
 ## Design constraints
 
