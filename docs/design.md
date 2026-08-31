@@ -248,8 +248,17 @@ together and a difference that means nothing becomes a large ratio: gaps of
 0.008 and 0.013 read as 0.24, and 0.010 against 0.018 reads as 0.29, against a
 threshold that has to be low enough for a real wink. Glancing down and back was
 turning pages on exactly that. So the gap between the eyes must also be large
-outright — a wink has one eye shut and the other wide, which is 0.045 of a face
-height, while the look-down cases are all under 0.008. Both tests have to pass.
+outright — a wink has one eye shut and the other wide, while the look-down cases
+are all under 0.008. Both tests have to pass.
+
+**Neither figure is a constant.** A first version fixed the gap at 0.02 of a
+face height, taken from one set of numbers, and it stopped the gesture working
+entirely: whether the winking eye reads as fully shut depends on the face, the
+camera and the glasses, and on a face where it does not, no wink ever reaches
+that. Calibration now measures the gap a wink actually produces and sets the
+gate to a fraction of it. The uncalibrated defaults are chosen for the harder
+case: a wink that only half closes scores 0.43 on the ratio, and a default of
+0.45 rejected precisely that.
 
 The hold counts votes over a window rather than demanding an unbroken run.
 Demanding every frame is fine over two of them and impossible over fifteen —
@@ -263,6 +272,21 @@ to 70ms, when the complaint was that quick winks were missed. With false turns
 now the more expensive failure, the default is half a second: long enough that
 nothing incidental lasts that long, short enough not to interrupt playing. It
 remains a setting.
+
+### testing the part with a face in it
+
+A headless browser's fake camera contains a rolling pattern, not a face, so
+everything past "is there a face" — the eye measure, both thresholds, the vote
+counting, the turn — never ran in any test. Three changes in a row shipped
+broken through that gap, each one reported as "it worked before and now nothing
+happens".
+
+`tools/face-path.mjs` closes it by feeding the pipeline landmarks it makes up:
+the eleven points the app actually reads, arranged as a face, with lid gaps and
+head angles set per case. It covers a held wink on each eye, a wink too short to
+count, a wink that only half closes, a look down with both lids low, a head
+shake, and two seconds of nothing. It found the half-closed wink being rejected
+and, in its own first run, two mistakes in itself.
 
 ### calibration — the part that is not optional
 

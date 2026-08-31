@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01d hold-tolerates-dropouts";
+const BUILD = "2026-09-01f gap-gate-measured";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -378,9 +378,11 @@ const holdFrames = () =>
 const VOTE_FRACTION = 0.75;
 const holdWindow = () => holdFrames() + 2;
 const requiredVotes = () => Math.max(2, Math.round(holdFrames() * VOTE_FRACTION));
-// On the eyelid-geometry scale one eye fully shut against one fully open is
-// 1.0, so this is a little under half a wink.
-const DEFAULT_ASYM_THRESHOLD = 0.45;
+// One eye fully shut against one fully open is 1.0 — but a wink that only half
+// closes, which is what glasses and a tired face produce, is about 0.43, and a
+// default of 0.45 rejected exactly that. Calibration replaces this with a
+// figure measured on the face in front of the camera.
+const DEFAULT_ASYM_THRESHOLD = 0.35;
 const CALIBRATION_KEY = "autopage.wink";
 // Stamped into a saved calibration. Its numbers only mean anything on the scale
 // that produced them, and the eyelid-geometry scale is not the blink-score one.
@@ -585,8 +587,16 @@ function stopGesture() {
  * camera has no face, so nothing downstream of "is there a face" was ever
  * exercised before it shipped.
  */
+function minAbsDiff() {
+  // Set from the wink that was actually measured, not from a constant. Whether
+  // the winking eye reads as fully shut depends on the face, the camera and the
+  // glasses, and a gate that assumes it does blocks every wink on a face where
+  // it does not.
+  return calibration?.minAbsDiff ?? MIN_ABS_DIFF;
+}
+
 function winkDirection(signedAsym, absDiff, threshold = asymThreshold()) {
-  if (absDiff <= MIN_ABS_DIFF) return 0;
+  if (absDiff <= minAbsDiff()) return 0;
   if (signedAsym > threshold) return 1;
   if (signedAsym < -threshold) return -1;
   return 0;
@@ -632,7 +642,7 @@ const BOTH_SHUT = 0.012; // both lid gaps this small: a blink, and no signal
 // ratio — glancing at the keyboard and back was turning pages on it. A wink has
 // one eye shut and the other wide, so the gap between them is large in absolute
 // terms too, and that is what is required here on top of the ratio.
-const MIN_ABS_DIFF = 0.02; // in face heights
+const MIN_ABS_DIFF = 0.012; // in face heights, used only before calibrating
 
 /** Lid gap and horizontal position for one eye, in the image plane. */
 function eyeOf(landmarks, points) {
@@ -723,12 +733,21 @@ function onGestureFrame() {
 }
 
 function gestureFrame() {
-
   const result = landmarker.detectForVideo(el.camPreview, performance.now());
-  const shapes = result.faceBlendshapes?.[0]?.categories;
-  const landmarks = result.faceLandmarks?.[0];
+  processFrame(result.faceLandmarks?.[0], result.faceBlendshapes?.[0]?.categories);
+}
+
+/**
+ * Everything that happens once a face has been found.
+ *
+ * Split out so a test can drive it with landmarks it makes up. A headless
+ * camera has no face in it, so this whole path — the eye measure, the
+ * thresholds, the vote counting, the turn itself — used to ship unexercised,
+ * and it broke twice in a row with nothing to notice.
+ */
+function processFrame(landmarks, shapes) {
   if (landmarks) updateHeadPose(landmarks);
-  if (!shapes) {
+  if (!shapes || !landmarks) {
     gestureHold = 0;
     // Hold the calibration clock rather than filling a phase with nothing.
     // Without this it counts down against an empty frame and reports a result
@@ -758,7 +777,7 @@ function gestureFrame() {
   // face instead of argued about.
   const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
-  if (calibrating) return sampleCalibration(asym, Math.abs(asym));
+  if (calibrating) return sampleCalibration(asym, Math.abs(asym), absDiff);
 
   // Back to judging the raw difference between the eyes.
   //
@@ -779,7 +798,7 @@ function gestureFrame() {
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    `  gap ${absDiff.toFixed(3)}/${MIN_ABS_DIFF}` +
+    `  gap ${absDiff.toFixed(3)}/${minAbsDiff().toFixed(3)}` +
     `  ${gestureHold}/${requiredVotes()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
@@ -869,6 +888,7 @@ function startCalibration() {
     index: 0,
     samples: { noise: [], right: [], left: [] },
     eyePeaks: { right: 0, left: 0 },
+    gapPeaks: { right: 0, left: 0 },
     until: 0,
   };
   el.camPreview.hidden = false;
@@ -905,11 +925,12 @@ function topMean(values, frac) {
   return top.reduce((a, b) => a + b, 0) / top.length;
 }
 
-function sampleCalibration(asym, closedEye) {
+function sampleCalibration(asym, closedEye, absDiff) {
   const phase = PHASES[calibrating.index];
   calibrating.samples[phase.key].push(asym);
   if (phase.key !== "noise") {
     calibrating.eyePeaks[phase.key] = Math.max(calibrating.eyePeaks[phase.key], closedEye);
+    calibrating.gapPeaks[phase.key] = Math.max(calibrating.gapPeaks[phase.key], absDiff);
   }
   const remaining = Math.max(0, calibrating.until - nowSeconds());
   el.gestureAsym.textContent =
@@ -926,6 +947,7 @@ function sampleCalibration(asym, closedEye) {
 function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
   const eyePeaks = calibrating.eyePeaks;
+  const gapPeaks = calibrating.gapPeaks;
   calibrating = null;
   el.camPreview.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
@@ -966,9 +988,15 @@ function finishCalibration() {
     return;
   }
 
+  // Well under the gap this face actually produces, so an ordinary wink clears
+  // it with room while a pair of half-lowered lids does not.
+  const gapPeak = Math.min(gapPeaks.right, gapPeaks.left);
+  const gate = Math.max(0.006, Math.min(0.02, gapPeak * 0.4));
+
   calibration = {
     scale: CALIBRATION_SCALE,
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
+    minAbsDiff: gate, gapPeak,
     savedAt: new Date().toISOString().slice(0, 10),
   };
   staleCalibration = false;
@@ -985,7 +1013,8 @@ function finishCalibration() {
         "the app will not pretend otherwise.";
 
   setCardMessage(
-    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)}\n${verdict}`
+    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)} · ` +
+      `gap ${gapPeak.toFixed(3)} → gate ${gate.toFixed(3)}\n${verdict}`
   );
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000); // then get off the score
@@ -1199,6 +1228,7 @@ window.__autopage = {
   get holdFrames() { return holdFrames(); },
   get requiredVotes() { return requiredVotes(); },
   get holdWindow() { return holdWindow(); },
+  processFrame,
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
 };
