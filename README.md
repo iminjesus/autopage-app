@@ -89,9 +89,17 @@ press.
 2. **Open that address in Safari, then Share → Add to Home Screen.** Since iOS
    14.3 the camera works from a home-screen app, so there is no reason to leave
    it in a browser tab. The service worker keeps the shell offline, so a stand
-   with no wifi on it is fine.
-3. **Open a score once.** It is stored, and it reopens on the page it was left
-   on. "Open another score" in the Setup panel changes it.
+   with no wifi on it is fine. The app says this itself on a first visit, with
+   the two steps written out, because Safari offers no install prompt of its own
+   and nothing otherwise appears.
+3. **Press "Try it with a sample score".** A four-page minuet is bundled, so
+   there is nothing to find before you can see whether the gesture works on your
+   face. Your own PDF opens from the same screen, or from "Open another score"
+   in the Setup panel later. Whichever is open is stored and reopens on the page
+   it was left on.
+
+Opening it on a laptop shows a QR code instead: point the iPad's camera at it
+and carry on there.
 
 What the iPad specifically needs, and what the app does about it:
 

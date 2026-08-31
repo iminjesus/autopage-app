@@ -66,6 +66,9 @@ body {
   position: absolute;
   text-align: center;
   padding: 24px;
+  /* Clear of the camera card, which sits at the top of the score and is exactly
+     what a first-time visitor sees if they say no to the camera. */
+  margin-top: 88px;
 }
 
 .title {
@@ -92,6 +95,73 @@ body {
 
 .file-btn:hover {
   background: var(--accent-strong);
+}
+
+.file-btn {
+  border: 0;
+  font-size: 15px;
+  font-family: inherit;
+}
+
+/* The second way in is a way in, not a decoration — quieter than the sample,
+   louder than a link. */
+.file-btn-quiet {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.file-btn-quiet:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.start-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+}
+
+.install {
+  margin: 28px auto 0;
+  padding: 14px 16px;
+  max-width: 420px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.install p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 12px;
+}
+
+.install .share-glyph {
+  display: inline-block;
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* White behind the code, always. A dark-themed QR is a QR nothing reads. */
+.qr {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 12px;
+}
+
+.qr svg {
+  border-radius: 6px;
+  border: 6px solid #fff;
+  background: #fff;
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
 }
 
 /* A file input dressed as a button. It is a label, so it needs the centring a

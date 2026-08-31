@@ -135,3 +135,30 @@ picker lived on an empty screen that would now never be seen. The tap zones stop
 short of the home indicator, where a swipe leaves the app. And the tilt becomes
 the default gesture on a touch device: at arm's length on a stand, an eyelid gap
 is a handful of pixels and the angle between the eyes is almost unchanged.
+
+## The landing screen was where people were being lost
+
+A file picker was the only thing on it. To find out whether any of this works
+you first had to go looking through iCloud Drive for a PDF, and a trip like that
+is one most people do not come back from — the app was asking for commitment
+before it had shown anything. So a four-page minuet ships with it and "Try it
+with a sample score" is the first button: from a cold link to a working score
+with a camera watching your face is now one tap.
+
+The other half is that a browser tab is not the app. Run from the home screen it
+is full screen, the score fills the iPad, and it is somewhere you can find
+again. Safari has no install prompt to hook — `beforeinstallprompt` is Chrome's,
+and on iOS nothing ever appears — so anyone who does not already know the Share
+menu trick simply never installs. Writing the two steps out is the entire fix,
+and it is the kind of thing that only looks unnecessary to someone who already
+knows it.
+
+A QR code carries the third case: the link arrives on a laptop and the iPad is
+the device it is for. The encoder is vendored rather than fetched, like pdf.js
+and for the same reason, and it is checked by decoding its own output rather
+than by comparing pictures — two well-regarded reference encoders disagree with
+each other on the same input and both are right, because the padding is free.
+Comparing against one of them anyway did find three real bugs first: a generator
+polynomial built in reverse, format bits laid down mirrored, and a penalty rule
+that missed every pattern touching the edge of the symbol, which had the mask
+chosen almost at random.

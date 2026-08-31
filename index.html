@@ -30,12 +30,36 @@
 
       <div class="score-empty" id="scoreEmpty">
         <h1 class="title">AutoPage</h1>
-        <p class="lede">Automatic page turning for PDF sheet music.</p>
-        <label class="file-btn">
-          Open a score
-          <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden />
-        </label>
+        <p class="lede">
+          Turn the pages of a PDF score with a flick of your head, or a wink.
+          No pedal, no hardware. The camera never leaves this device.
+        </p>
+
+        <!-- The sample comes first. Landing here with only a file picker means
+             going to find a PDF before you can see whether any of this works,
+             and most people do not come back from that trip. -->
+        <div class="start-row">
+          <button class="file-btn" id="sampleBtn">Try it with a sample score</button>
+          <label class="file-btn file-btn-quiet">
+            Open your own PDF
+            <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden />
+          </label>
+        </div>
+
         <p class="score-error" id="scoreError" hidden></p>
+
+        <!-- iOS has no install prompt of its own — nothing appears, ever, so
+             anyone who does not already know the Share menu trick simply uses
+             it in a tab and loses it. Saying the two steps is the whole fix. -->
+        <div class="install" id="installHint" hidden>
+          <p id="installText"></p>
+          <div class="qr" id="qrBox" hidden></div>
+          <div class="start-row">
+            <button class="btn btn-secondary" id="installBtn" hidden>Install</button>
+            <button class="btn btn-secondary" id="shareBtn" hidden>Share the link</button>
+            <button class="btn btn-quiet" id="installDismiss">Not now</button>
+          </div>
+        </div>
       </div>
     </div>
 

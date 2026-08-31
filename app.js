@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01n gentler-tilt";
+const BUILD = "2026-09-01p share-and-install";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -51,6 +51,7 @@ for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
+  "sampleBtn", "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeInput", "gestureHelp", "setupStatus",
@@ -1565,6 +1566,153 @@ async function loadFile(file) {
   }
 }
 
+// ============================================================
+// Getting in — the first sixty seconds
+//
+// Everything above assumes a score is already open. Nothing was, and the only
+// way to change that was a file picker: land on the page, and to find out
+// whether any of this works you first go hunting through iCloud Drive for a
+// PDF. That is where people leave.
+// ============================================================
+
+const SAMPLE = "./fixtures/menuet-in-g.pdf";
+
+async function loadSample() {
+  showError("");
+  el.sampleBtn.disabled = true;
+  el.sampleBtn.textContent = "Loading…";
+  try {
+    const res = await fetch(SAMPLE);
+    if (!res.ok) throw new Error(`${res.status}`);
+    const bytes = await res.arrayBuffer();
+    await rememberScore(bytes, "sample — Menuet in G", 1);
+    await openScore(bytes, "sample — Menuet in G", 1);
+  } catch (err) {
+    showError(`Could not load the sample — ${err.message}. Open your own PDF instead.`);
+  } finally {
+    el.sampleBtn.disabled = false;
+    el.sampleBtn.textContent = "Try it with a sample score";
+  }
+}
+
+el.sampleBtn.addEventListener("click", loadSample);
+
+// --- Installing ---
+//
+// Run from a browser tab this is a page someone has to find again. Run from the
+// home screen it is the app it is meant to be: full screen, no address bar, and
+// the score is what fills the iPad.
+
+const INSTALL_DISMISSED = "autopage.installHidden";
+
+const isStandalone = () =>
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.navigator.standalone === true;
+
+// iPadOS 13 and later report themselves as a Mac, so the platform string alone
+// says the wrong thing on exactly the device this app is for. A Mac that
+// reports touch points is an iPad.
+const isApple = () =>
+  /iP(hone|ad|od)/.test(navigator.platform) ||
+  (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
+
+let installPrompt = null; // Chrome hands one over; Safari never does
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  showInstallHint();
+});
+
+function showInstallHint() {
+  if (isStandalone()) return; // already installed: nothing to offer
+  try {
+    if (localStorage.getItem(INSTALL_DISMISSED) === "1") return;
+  } catch {}
+
+  const canShare = typeof navigator.share === "function";
+  // Scanning a code on the screen you are already holding is not a route
+  // anywhere. On a laptop it is the shortest path to the iPad, which is the
+  // device this is actually for — so the offer is made on the strength of that,
+  // and the words follow the offer rather than the other way round.
+  const offerQr = !matchMedia("(pointer: coarse)").matches;
+
+  if (installPrompt) {
+    el.installText.textContent =
+      "Install it and it opens full screen, with the score filling the display " +
+      "and nothing to find again later.";
+    el.installBtn.hidden = false;
+  } else if (isApple()) {
+    // Safari offers no prompt to hook, so the steps are the feature.
+    el.installText.innerHTML =
+      'Add this to your home screen and it opens full screen, with the score ' +
+      'filling the iPad. Tap <span class="share-glyph">Share</span> in Safari, ' +
+      'then <span class="share-glyph">Add to Home Screen</span>. The camera ' +
+      'works from there too.';
+  } else if (offerQr) {
+    el.installText.textContent =
+      "This is meant for the tablet on your stand. Point its camera at the code " +
+      "to open it there, then add it to the home screen.";
+  } else {
+    el.installText.textContent =
+      "Add this to your home screen from the browser menu and it opens full " +
+      "screen, with the score filling the display.";
+  }
+
+  el.shareBtn.hidden = !canShare;
+  el.installHint.hidden = false;
+  if (offerQr) showQr();
+}
+
+async function showQr() {
+  try {
+    // Loaded on demand, like the face model: someone who never sees this hint
+    // should not pay for an encoder they will not use.
+    const { qrSvg } = await import("./qr.js");
+    el.qrBox.innerHTML = qrSvg(location.href, { size: 148 });
+    el.qrBox.hidden = false;
+  } catch (err) {
+    // A URL too long to encode, or a module that did not load. The written
+    // instructions above it still stand on their own.
+    console.warn("no QR:", err.message);
+  }
+}
+
+el.installBtn.addEventListener("click", async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  el.installHint.hidden = true;
+});
+
+el.shareBtn.addEventListener("click", async () => {
+  const url = location.href;
+  try {
+    await navigator.share({
+      title: "AutoPage",
+      text: "Hands-free page turning for PDF sheet music.",
+      url,
+    });
+  } catch {
+    // A cancelled share throws too, so this is not an error path — fall back to
+    // the clipboard only if sharing is not there at all.
+    if (typeof navigator.share !== "function") {
+      try {
+        await navigator.clipboard.writeText(url);
+        el.shareBtn.textContent = "Link copied";
+      } catch {}
+    }
+  }
+});
+
+el.installDismiss.addEventListener("click", () => {
+  el.installHint.hidden = true;
+  try {
+    localStorage.setItem(INSTALL_DISMISSED, "1");
+  } catch {}
+});
+
 el.fileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
 // The one on the empty screen goes away with the empty screen, and on a tablet
 // there is no dragging a file onto anything. Reopening the last score
@@ -1691,6 +1839,7 @@ collapseSetup(true); // nothing but the score, until someone asks for more
 render();
 beginWatching();
 restoreLastScore().then((restored) => {
+  if (!restored) showInstallHint();
   if (!restored && !("wakeLock" in navigator)) {
     showError(
       "This browser cannot keep the screen awake, so it will dim while you " +

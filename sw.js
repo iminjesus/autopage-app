@@ -1,15 +1,17 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v7";
+const CACHE = "autopage-v9";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./qr.js",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
   "./icon-512.png",
   "./apple-touch-icon.png",
+  "./fixtures/menuet-in-g.pdf",
   "./vendor/pdf.js",
   "./vendor/pdf.worker.js",
   // The face model and its runtime are 13MB and only fetched when the gesture
