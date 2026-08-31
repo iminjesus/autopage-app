@@ -206,7 +206,18 @@ Head nods and plain blinks are disqualified outright — musicians do both
 constantly. The gesture must be something that does not occur while playing,
 and a unilateral eye closure is almost always deliberate.
 
-**Movement is still unsolved.** Turning the head hides part of one eye from the
+**A head shake is separable from a wink, and not by tuning.** Shaking sweeps the
+yaw back and forth; a wink does not move the head at all. So the veto is on yaw
+*travel* within 150ms, which has nothing to do with how long or how hard the
+wink is — making the gesture easier to trigger costs nothing here, where every
+threshold change would have traded one problem for the other.
+
+Swept against simulated shakes from 0.8 to 2Hz and playing sway up to 0.5Hz:
+0.12 inter-eye widths is the only value that vetoes every shake and no sway.
+Sway travels slowly enough that little of it lands inside the window; a shake is
+mostly travel.
+
+**Slow drift is still unsolved.** Turning the head hides part of one eye from the
 camera and the model reports that as the eye closing, so the difference rises
 with nobody having winked, and ordinary swaying turns pages.
 

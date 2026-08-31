@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31j reverted-to-raw";
+const BUILD = "2026-08-31k shorter-wink-no-shake";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -923,8 +923,11 @@ const CALIBRATION_KEY = "autopage.wink";
 let landmarker = null;
 let camStream = null;
 let gestureTimer = null;
-let gestureHold = 0;
 let gestureDirection = 0;
+// The last few frames' verdicts. A quick wink can dip under the threshold for
+// a frame on its way up or down, and demanding an unbroken run throws the
+// whole gesture away over that one frame.
+const recent = [];
 let lastGestureAt = 0;
 let gestureLatched = false;
 let calibration = null; // {threshold, separation}
@@ -932,6 +935,18 @@ let calibrating = null; // {phase, samples, until}
 let prevPoints = null;
 let headMotion = 0;
 let headYaw = 0;
+const yawHistory = [];
+let yawSwing = 0;
+
+// Shaking the head sweeps the yaw back and forth; a wink does not move the
+// head at all. So the two are separable on an axis that has nothing to do with
+// how long or how hard the wink is — which is what keeps making the gesture
+// shorter from costing anything here.
+// Swept against simulated shakes from 0.8 to 2Hz and playing sway up to 0.5Hz:
+// 0.12 is the only value that vetoes every shake and no sway. Sway travels
+// slowly enough that little of it lands inside a 150ms window; a shake is
+// mostly travel.
+const MAX_YAW_SWING = 0.12; // inter-eye widths of yaw travel within ~150ms
 // A 30fps readout cannot be read by eye, so the peaks are held. Without this
 // there is no way to tell "the model never sees the eye close" apart from
 // "the threshold is wrong", and both have been guessed at for several rounds.
@@ -982,7 +997,7 @@ function loadCalibration() {
  * rejecting here, not the height of the bar.
  */
 function thresholdFrom(noiseLevel, winkLevel) {
-  return Math.max(noiseLevel * 1.6, noiseLevel + 0.35 * (winkLevel - noiseLevel), 0.15);
+  return Math.max(noiseLevel * 1.5, noiseLevel + 0.25 * (winkLevel - noiseLevel), 0.15);
 }
 
 const asymThreshold = () => calibration?.threshold ?? DEFAULT_ASYM_THRESHOLD;
@@ -1050,6 +1065,10 @@ function updateHeadPose(landmarks) {
   const interEye = dist(eyeA, eyeB) || 1e-6;
   headYaw = (dist(nose, eyeA) - dist(nose, eyeB)) / interEye;
 
+  yawHistory.push(headYaw);
+  while (yawHistory.length > Math.round(GESTURE_FPS * 0.15)) yawHistory.shift();
+  yawSwing = Math.max(...yawHistory) - Math.min(...yawHistory);
+
   const points = [nose, eyeA, eyeB];
   headMotion = prevPoints
     ? points.reduce((sum, p, i) => sum + dist(p, prevPoints[i]), 0) / points.length / interEye
@@ -1070,6 +1089,8 @@ function onGestureFrame() {
     // Without this it counts down against an empty frame and reports a result
     // built from no samples at all.
     prevPoints = null;
+    yawHistory.length = 0;
+    yawSwing = 0;
     if (calibrating) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
@@ -1096,17 +1117,30 @@ function onGestureFrame() {
   // because there was no way to see that happening.
   //
   // Movement still needs an answer. It will be a measured one this time.
+  const shaking = yawSwing > MAX_YAW_SWING;
+
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
-    `  ${gestureHold}/${holdFrames()}f\n` +
+    `  ${gestureHold}/${holdFrames()}f${shaking ? "  SHAKING" : ""}\n` +
     `peak L ${peaks.l.toFixed(2)}  R ${peaks.r.toFixed(2)}  diff ${peaks.net.toFixed(2)} ` +
-    `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}  move ${headMotion.toFixed(3)}`;
+    `/ ${asymThreshold().toFixed(2)}   swing ${yawSwing.toFixed(2)} / ${MAX_YAW_SWING}`;
+
+  if (shaking) {
+    recent.length = 0;
+    gestureHold = 0;
+    gestureDirection = 0;
+    return;
+  }
 
   const sign = calibration?.forwardSign ?? 1;
   const signed = asym * sign;
   const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
-  gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
+
+  recent.push(direction);
+  while (recent.length > holdFrames() + 1) recent.shift();
+  const votes = direction === 0 ? 0 : recent.filter((d) => d === direction).length;
+  gestureHold = votes;
   gestureDirection = direction;
 
   // One turn per wink. A gesture that fires on a hold would otherwise fire
@@ -1117,7 +1151,7 @@ function onGestureFrame() {
 
   if (
     !gestureLatched &&
-    gestureHold >= holdFrames() &&
+    votes >= holdFrames() &&
     nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S
   ) {
     gestureHold = 0;
