@@ -288,6 +288,13 @@ glasses under their lighting is not what it looks like through another's, and
 the only honest way to know whether this works for someone is to measure it on
 their face and show them the number.
 
+It is done once. The result is stored in the browser and survives reloads, new
+tabs and restarts — verified, not assumed. It is per browser and per origin, so
+serving the app on a different port is a different store, and a private window
+forgets it on close. A calibration whose wink levels look like noise is
+discarded on load rather than obeyed, which also clears anything saved by the
+blink-score version, whose numbers mean nothing on the eyelid scale.
+
 Three phases: blink normally, wink right and hold, wink left and hold. Normal
 blinking establishes the asymmetry this has to clear — the noise floor — and
 the winks establish the signal. The result is reported as a separation ratio,

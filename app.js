@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31m eyelid-geometry";
+const BUILD = "2026-08-31n calibration-persists";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -977,7 +977,9 @@ function loadCalibration() {
     const raw = localStorage.getItem(CALIBRATION_KEY);
     calibration = raw ? JSON.parse(raw) : null;
     if (calibration && Math.min(calibration.rightLevel ?? 0, calibration.leftLevel ?? 0) < 0.3) {
-      calibration = null; // measured from noise, not from a wink
+      // Measured from noise rather than from a wink — including anything saved
+      // by the blink-score version, whose numbers mean nothing on this scale.
+      calibration = null;
       localStorage.removeItem(CALIBRATION_KEY);
     }
     if (calibration?.noiseLevel && calibration?.rightLevel && calibration?.leftLevel) {
@@ -1340,6 +1342,7 @@ function finishCalibration() {
 
   calibration = {
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
+    savedAt: new Date().toISOString().slice(0, 10),
   };
   try {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
@@ -1569,8 +1572,10 @@ el.gestureCheck.addEventListener("change", async () => {
   try {
     await startGesture();
     el.gestureStatus.textContent = calibration
-      ? "Ready. Right eye turns forward, left eye back."
-      : "Ready, but uncalibrated — press Calibrate to check it works with your glasses.";
+      ? `Ready — calibrated ${calibration.savedAt ?? "earlier"} and saved in this browser. ` +
+        `Right eye forward, left eye back.`
+      : "Ready, on default settings. Calibrating tunes it to your face and is " +
+        "remembered — you only do it once.";
   } catch (err) {
     el.gestureCheck.checked = false;
     el.gestureStatus.textContent = `Camera unavailable — ${err.message}`;
