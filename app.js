@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01c deliberate-wink";
+const BUILD = "2026-09-01d hold-tolerates-dropouts";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -368,6 +368,16 @@ let swapEyes = false;
 
 const holdFrames = () =>
   Math.max(2, Math.round((gestureHoldMs * GESTURE_FPS) / 1000));
+
+// Frames the wink is looked for over, and how many of them have to agree.
+//
+// Demanding every frame is fine over two of them and impossible over fifteen:
+// landmark tracking drops a frame here and there, and at half a second that
+// turned into never firing at all. The tolerance has to scale with the window,
+// not stay at "one dropped frame".
+const VOTE_FRACTION = 0.75;
+const holdWindow = () => holdFrames() + 2;
+const requiredVotes = () => Math.max(2, Math.round(holdFrames() * VOTE_FRACTION));
 // On the eyelid-geometry scale one eye fully shut against one fully open is
 // 1.0, so this is a little under half a wink.
 const DEFAULT_ASYM_THRESHOLD = 0.45;
@@ -566,6 +576,22 @@ function stopGesture() {
   landmarker = null;
 }
 
+/**
+ * Which way this frame votes: +1 forward, -1 back, 0 nothing.
+ *
+ * Both tests have to pass — the eyes far apart as a proportion, and far apart
+ * outright. Pulled out as a function with no state so it can be checked against
+ * real numbers, which is what the frame loop around it cannot be: the headless
+ * camera has no face, so nothing downstream of "is there a face" was ever
+ * exercised before it shipped.
+ */
+function winkDirection(signedAsym, absDiff, threshold = asymThreshold()) {
+  if (absDiff <= MIN_ABS_DIFF) return 0;
+  if (signedAsym > threshold) return 1;
+  if (signedAsym < -threshold) return -1;
+  return 0;
+}
+
 function blendshape(shapes, name) {
   return shapes.find((c) => c.categoryName === name)?.score ?? 0;
 }
@@ -754,7 +780,7 @@ function gestureFrame() {
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
     `  gap ${absDiff.toFixed(3)}/${MIN_ABS_DIFF}` +
-    `  ${gestureHold}/${holdFrames()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
+    `  ${gestureHold}/${requiredVotes()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${asymThreshold().toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
@@ -769,14 +795,10 @@ function gestureFrame() {
 
   const sign = (calibration?.forwardSign ?? 1) * (swapEyes ? -1 : 1);
   const signed = asym * sign;
-  // Both tests, every frame: the eyes must be far apart as a proportion *and*
-  // far apart outright.
-  const wide = absDiff > MIN_ABS_DIFF;
-  const direction =
-    !wide ? 0 : signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
+  const direction = winkDirection(signed, absDiff);
 
   recent.push(direction);
-  while (recent.length > holdFrames() + 1) recent.shift();
+  while (recent.length > holdWindow()) recent.shift();
   const votes = direction === 0 ? 0 : recent.filter((d) => d === direction).length;
   gestureHold = votes;
   gestureDirection = direction;
@@ -1173,6 +1195,10 @@ window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
 window.__autopage = {
-  state, readPage, startGesture, stopGesture,
+  state, readPage, startGesture, stopGesture, winkDirection, eyeSignal,
+  get holdFrames() { return holdFrames(); },
+  get requiredVotes() { return requiredVotes(); },
+  get holdWindow() { return holdWindow(); },
+  get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
 };

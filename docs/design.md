@@ -251,6 +251,13 @@ turning pages on exactly that. So the gap between the eyes must also be large
 outright — a wink has one eye shut and the other wide, which is 0.045 of a face
 height, while the look-down cases are all under 0.008. Both tests have to pass.
 
+The hold counts votes over a window rather than demanding an unbroken run.
+Demanding every frame is fine over two of them and impossible over fifteen —
+landmark tracking drops a frame here and there, and at half a second that meant
+never firing at all, which is how a working gesture stopped working the moment
+the hold was lengthened. Three quarters of the window has to agree, so the
+tolerance scales with the window instead of staying at "one dropped frame".
+
 **And the wink has to be deliberate.** The hold went the other way earlier, down
 to 70ms, when the complaint was that quick winks were missed. With false turns
 now the more expensive failure, the default is half a second: long enough that
