@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31c match-required";
+const BUILD = "2026-08-31d wink-calibration-fixed";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -990,10 +990,13 @@ function onGestureFrame() {
   if (calibrating) return sampleCalibration(asym);
 
   el.gestureAsym.textContent =
-    `wink ${asym >= 0 ? "+" : ""}${asym.toFixed(2)} / ${asymThreshold().toFixed(2)}` +
-    (calibration ? `  (x${calibration.separation.toFixed(1)})` : "  uncalibrated");
+    `L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
+    ` / ${asymThreshold().toFixed(2)}` +
+    (calibration ? `  x${calibration.separation.toFixed(1)}` : "  uncalibrated");
 
-  const direction = asym > asymThreshold() ? 1 : asym < -asymThreshold() ? -1 : 0;
+  const sign = calibration?.forwardSign ?? 1;
+  const signed = asym * sign;
+  const direction = signed > asymThreshold() ? 1 : signed < -asymThreshold() ? -1 : 0;
   gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
   gestureDirection = direction;
 
@@ -1048,12 +1051,30 @@ function percentile(values, p) {
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
+/**
+ * Mean of the strongest `frac` of samples.
+ *
+ * A wink might be held for half a second of a six-second phase. Measured
+ * against a synthetic hold of a known 0.85: at half a second the 90th
+ * percentile reads 0.08, because nine tenths of the window is the pauses
+ * between winks. The mean of the top tenth reads 0.75, and stays right as the
+ * hold gets longer.
+ */
+function topMean(values, frac) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => b - a);
+  const n = Math.max(3, Math.round(sorted.length * frac));
+  const top = sorted.slice(0, Math.min(n, sorted.length));
+  return top.reduce((a, b) => a + b, 0) / top.length;
+}
+
 function sampleCalibration(asym) {
   const phase = PHASES[calibrating.index];
   calibrating.samples[phase.key].push(asym);
-  const left = Math.max(0, calibrating.until - nowSeconds());
-  el.gestureAsym.textContent = `${phase.prompt}  ${left.toFixed(0)}s`;
-  if (left > 0) return;
+  const remaining = Math.max(0, calibrating.until - nowSeconds());
+  el.gestureAsym.textContent =
+    `${phase.prompt}  ${remaining.toFixed(0)}s   (live diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)})`;
+  if (remaining > 0) return;
 
   calibrating.index += 1;
   if (calibrating.index < PHASES.length) return nextCalibrationPhase();
@@ -1069,13 +1090,25 @@ function finishCalibration() {
 
   // Blinks are symmetric, so their asymmetry is the noise this has to clear.
   const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
-  const rightLevel = percentile(right, 0.9);
-  const leftLevel = -percentile(left.map((v) => -v), 0.9);
+
+  // Which sign belongs to which eye is not assumed. Cameras mirror, front and
+  // rear differ, and the model's "left" is the subject's left, not the
+  // viewer's — three chances to get it backwards. The calibration just records
+  // which way each wink actually moved the difference.
+  const rightSigned = topMean(right, 0.1);
+  const rightSignedNeg = topMean(right.map((v) => -v), 0.1);
+  const leftSigned = topMean(left, 0.1);
+  const leftSignedNeg = topMean(left.map((v) => -v), 0.1);
+
+  const rightLevel = Math.max(rightSigned, rightSignedNeg);
+  const leftLevel = Math.max(leftSigned, leftSignedNeg);
+  const forwardSign = rightSigned >= rightSignedNeg ? 1 : -1;
+
   const winkLevel = Math.min(rightLevel, leftLevel);
   const separation = winkLevel / noiseLevel;
 
-  const threshold = Math.max(noiseLevel * 1.6, (noiseLevel + winkLevel) / 2, 0.2);
-  calibration = { threshold, separation };
+  const threshold = Math.max(noiseLevel * 1.6, (noiseLevel + winkLevel) / 2, 0.15);
+  calibration = { threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel };
   try {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}
@@ -1089,8 +1122,9 @@ function finishCalibration() {
         "the app will not pretend otherwise.";
 
   el.gestureStatus.textContent =
-    `blink noise ${noiseLevel.toFixed(2)} · wink ${winkLevel.toFixed(2)} · ` +
-    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)}\n${verdict}`;
+    `blink noise ${noiseLevel.toFixed(2)} · right wink ${rightLevel.toFixed(2)} · ` +
+    `left wink ${leftLevel.toFixed(2)} · separation x${separation.toFixed(1)} · ` +
+    `threshold ${threshold.toFixed(2)}\n${verdict}`;
 }
 
 // ============================================================

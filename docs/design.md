@@ -208,11 +208,30 @@ the winks establish the signal. The result is reported as a separation ratio,
 and below about 1.5 the app says plainly that it is not reliable here and points
 at the pedal, the tap zones and the arrow keys instead of pretending.
 
-**Untested.** Everything else in this project was verified by measurement. This
-was not: there is no camera and no face in the environment it was written in.
-The pipeline is confirmed to load from local files, initialise, and process
-frames — and it correctly reports no face when there is none. Whether a wink is
-distinguishable from a blink through a given pair of glasses is exactly what the
+Two things the calibration got wrong on its first run against a real face, both
+of which made a perfectly good wink look like no wink at all:
+
+- The left-eye level was negated twice, so a clean left wink came back as a
+  large *negative* number and the smaller of the two levels — which is what
+  decides the verdict — became meaningless.
+- The level was read at the 90th percentile of a six-second phase. Against a
+  synthetic hold of a known 0.85, half a second of winking reads 0.08 there,
+  because nine tenths of the window is the pauses between winks. The mean of
+  the top tenth reads 0.75 and holds up as the hold lengthens.
+
+Which sign means which eye is no longer assumed either. Cameras mirror, front
+and rear cameras differ, and the model's "left" is the subject's left rather
+than the viewer's — three chances to have it backwards. Calibration records
+which way each wink actually moved the difference and stores that.
+
+The live readout now shows both eyes separately, because "the model cannot see
+my wink" and "the threshold is wrong" are different problems that looked
+identical from a single number.
+
+**Still unverified end to end.** There is no camera and no face in the
+environment this was written in. The pipeline is confirmed to load from local
+files, initialise, process frames, and correctly report no face when there is
+none. Whether a wink clears a blink through a given pair of glasses is what the
 calibration screen exists to answer, on the user's own face.
 
 ### store
