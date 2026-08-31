@@ -8,15 +8,30 @@ await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
 
 const run = (label, opts) =>
-  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, roll: r0 = 0, rise = 0, mode = "wink" }) => {
+  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, path = [], mode = "wink" }) => {
     let gapL = gL, gapR = gR;
+    // The head's angle over time, as legs of [target radians, seconds] starting
+    // from level. A step change was what the old cases used, and a head cannot
+    // step — which mattered the moment the angle came down far enough that only
+    // the speed of the movement separates a command from a lean. Every tilt
+    // case below now travels the way a neck travels.
+    const legs = path.map(([to, secs]) => [to, Math.max(1, Math.round(secs * 30))]);
+    const rollAt = (t) => {
+      let start = 0, from = 0;
+      for (const [to, n] of legs) {
+        if (t < start + n) return from + (to - from) * ((t - start + 1) / n);
+        start += n;
+        from = to;
+      }
+      return from;
+    };
     window.__autopage.setMode(mode);
     const A = window.__autopage;
     const before = A.state.page;
     // A face, made of the eleven points the app actually reads.
     const face = (t, neutral = false) => {
       const turn = hz ? yaw * Math.sin(2 * Math.PI * hz * t / 30) : (yaw || 0);
-      const roll = neutral ? 0 : rise ? r0 * Math.min(1, t / (30 * rise)) : r0;
+      const roll = neutral ? 0 : rollAt(t);
       // roll is in radians: the eye line rotates, everything else follows.
       const half = 0.06, cx = 0.5 + turn * 0.05, cy = 0.32;
       const L = { x: cx + half * Math.cos(roll), y: cy + half * Math.sin(roll) };
@@ -63,8 +78,9 @@ const run = (label, opts) =>
       [gapL, gapR] = save;
       return f;
     };
+    const total = legs.length ? legs.reduce((n, [, f]) => n + f, 0) : frames;
     for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
-    for (let t = 0; t < frames; t++) A.processFrame(face(t), shapes);
+    for (let t = 0; t < total; t++) A.processFrame(face(t), shapes);
     return { label, from: before, to: A.state.page, turned: A.state.page !== before };
   }, { label, ...opts });
 
@@ -92,30 +108,47 @@ for (const [label, opts, want] of cases) {
   console.log(`${r.turned === want ? "ok  " : "FAIL"} ${label.padEnd(28)} ${r.from}->${r.to}  (want ${want ? "a turn" : "no turn"})`);
 }
 console.log("--- the head tilt: right is forward, left is back");
-// Positive roll here drops the player's LEFT eye, which is a tilt to their
-// left, which is back. Negative roll is a tilt to their right: forward.
+// Positive roll drops the player's LEFT eye — a tilt to their left, which is
+// back. Negative roll is a tilt to their right: forward. Paths are legs of
+// [radians, seconds], so `[[-0.21, 0.3], [-0.21, 0.5]]` reads "flick 12 degrees
+// right over a third of a second, then hold it there for half a second".
+// Fourteen degrees — just past the twelve the app asks for, which is the whole
+// point: the gesture has to work at barely more than the threshold. The old
+// rule only fired if you were still accelerating through it, so in practice it
+// took twenty-five, and that is what hurt.
+const R = 0.24, L = -0.24;
 const tiltCases = [
-  ["head level 2s",              { gapL: open, gapR: open, frames: 60, roll: 0,     mode: "tilt" }, 2],
-  ["tilt right 20deg 0.4s",      { gapL: open, gapR: open, frames: 12, roll: -0.35, mode: "tilt" }, 3],
-  ["tilt left 20deg 0.4s",       { gapL: open, gapR: open, frames: 12, roll: 0.35,  mode: "tilt" }, 1],
-  ["tilt right 0.1s",            { gapL: open, gapR: open, frames: 3,  roll: -0.35, mode: "tilt" }, 2],
-  ["lean 7deg for 2s",           { gapL: open, gapR: open, frames: 60, roll: 0.12,  mode: "tilt" }, 2],
-  ["lean 10deg for 2s",          { gapL: open, gapR: open, frames: 60, roll: 0.17,  mode: "tilt" }, 2],
-  ["lean 14deg for 2s",          { gapL: open, gapR: open, frames: 60, roll: 0.24,  mode: "tilt" }, 2],
-  // Expression reaches the same angle, but it drifts there.
-  ["expressive lean 20deg over 1.5s", { gapL: open, gapR: open, frames: 90,  roll: 0.35, rise: 1.5, mode: "tilt" }, 2],
-  ["expressive lean 25deg over 2.5s", { gapL: open, gapR: open, frames: 120, roll: 0.44, rise: 2.5, mode: "tilt" }, 2],
-  ["deliberate tilt right over 0.3s", { gapL: open, gapR: open, frames: 30, roll: -0.35, rise: 0.3, mode: "tilt" }, 3],
-  ["deliberate tilt left over 0.3s",  { gapL: open, gapR: open, frames: 30, roll: 0.35,  rise: 0.3, mode: "tilt" }, 1],
-  ["raised eyebrows do nothing", { gapL: open, gapR: open, frames: 60, brow: 0.9,   mode: "tilt" }, 2],
-  ["winking in tilt mode",       { gapL: open, gapR: shut, frames: 30, roll: 0,     mode: "tilt" }, 2],
+  ["head level 2s",           { path: [[0, 2]] }, 2],
+  // The gesture as asked for: a flick to the threshold and a stop. Nothing here
+  // goes past twelve degrees, because having to go past it is the complaint.
+  ["flick right 14deg, hold, release", { path: [[L, 0.3], [L, 0.3], [0, 0.3], [0, 0.5]] }, 3],
+  ["flick left 14deg, hold, release",  { path: [[R, 0.3], [R, 0.3], [0, 0.3], [0, 0.5]] }, 1],
+  // The hold is what makes it deliberate. Touching the angle on the way past,
+  // with no dwell at all, is not the gesture.
+  ["flick right and let go at once",   { path: [[L, 0.3], [0, 0.2], [0, 0.6]] }, 2],
+  // Short of the angle, however fast.
+  ["flick to 8deg only",      { path: [[-0.14, 0.3], [-0.14, 0.6]] }, 2],
+  // Far enough, but drifted there.
+  ["drift to 20deg over 1.5s", { path: [[-0.35, 1.5], [-0.35, 0.5]] }, 2],
+  ["expressive lean 25deg over 2.5s", { path: [[0.44, 2.5]] }, 2],
+  ["settle into a 14deg lean, hold 2s", { path: [[0.24, 1.0], [0.24, 2.0]] }, 2],
+  ["settle into a 10deg lean, hold 2s", { path: [[0.17, 1.0], [0.17, 2.0]] }, 2],
+  // Straightening up is quick, and it passes back through every angle it came
+  // up through. It must not read as a tilt the other way, or as another one the
+  // same way.
+  ["straighten up from a 20deg lean", { path: [[0.35, 1.5], [0, 0.3], [0, 0.7]] }, 2],
+  ["straighten up fast from a flick",  { path: [[L, 0.3], [L, 0.3], [0, 0.2], [0, 0.9]] }, 3],
+  // Holding a tilt must turn one page, not a page every cooldown.
+  ["flick right and hold 3s", { path: [[L, 0.3], [L, 3.0]] }, 3],
+  ["raised eyebrows do nothing", { path: [[0, 2]], brow: 0.9 }, 2],
+  ["winking in tilt mode",    { path: [[0, 1]], gapR: shut }, 2],
 ];
 for (const [label, opts, want] of tiltCases) {
   await p.evaluate(() => { window.__autopage.state.page = 2; });
   await p.waitForTimeout(700);
-  const r = await run(label, opts);
+  const r = await run(label, { gapL: open, gapR: open, frames: 60, mode: "tilt", ...opts });
   const how = want === 3 ? "forward" : want === 1 ? "back" : "no turn";
-  console.log(`${r.to === want ? "ok  " : "FAIL"} ${label.padEnd(34)} ${r.from}->${r.to}  (want ${how})`);
+  console.log(`${r.to === want ? "ok  " : "FAIL"} ${label.padEnd(36)} ${r.from}->${r.to}  (want ${how})`);
 }
 await p.evaluate(() => window.__autopage.setMode("wink"));
 console.log("ERRORS:", errs.length ? errs : "none");

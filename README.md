@@ -10,7 +10,7 @@ misses or turns at the wrong moment.
 **Status: a face gesture turns the pages.** Open a score and use either one:
 
 - **Wink** — right eye forward, left eye back. Needs the eyelids to be readable, so glasses off.
-- **Head tilt** — tilt to your right to go forward, to your left to go back. Works with glasses on or off.
+- **Head tilt** — flick your head right to go forward, left to go back. A small movement, done briskly. Works with glasses on or off.
 
 The camera starts on its own; the browser asks once and remembers. There is
 nothing to switch on and nothing to press, and nothing on screen but the score.
@@ -26,11 +26,13 @@ page".
 
 - **Winking** — right eye forward, left eye back, held for a fifth of a second. What separates a wink from glancing down at the keyboard is its
   shape, not its length, so the hold does not have to be tiring.
-- **A head tilt** — right forward, left back. Tilt past about seventeen degrees
-  and get there quickly: a lean into a phrase drifts to the same angle over a
-  second or more and does not count, and nodding to the beat is a different axis
-  that never registers at all. This is the one that works behind glasses, where
-  a lens rim sits across the eyelid and no wink threshold reaches past it.
+- **A head tilt** — right forward, left back. Flick it over about twelve degrees
+  and hold a moment; what counts is that the movement arrives quickly, not that
+  it goes far, so there is nothing to strain. A lean into a phrase drifts to the
+  same angle too slowly to register, straightening up again never counts, and
+  nodding to the beat is a different axis that is invisible to the measure. This
+  is the one that works behind glasses, where a lens rim sits across the eyelid
+  and no wink threshold reaches past it.
 - **Arrow keys, PageUp/PageDown, space** — which is also what a Bluetooth
   page-turner pedal sends, so those work with no setup.
 - **Tapping** the outer sixth of either side of the score.

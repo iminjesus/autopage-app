@@ -55,8 +55,11 @@ console.log("wake lock API     ->", awake ? "present" : "absent (headless)");
 const touch = await b.newContext({ viewport: { width: 834, height: 1194 }, hasTouch: true, isMobile: true });
 const t = await touch.newPage();
 await t.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
-const first = (await t.textContent("#gestureHelp")).split("\n")[0].trim();
+// The mode itself, not the sentence describing it — the wording of the help
+// text is not the contract, and checking it made this fail on a rewrite that
+// changed nothing about the behaviour.
+const mode = await t.evaluate(() => window.__autopage.mode);
 const coarse = await t.evaluate(() => matchMedia("(pointer: coarse)").matches);
-console.log(`${first.includes("tilt") ? "ok  " : "FAIL"} touch default   -> coarse:${coarse}  "${first}"`);
+console.log(`${mode === "tilt" ? "ok  " : "FAIL"} touch default   -> coarse:${coarse}  mode:${mode}`);
 await touch.close();
 await b.close();

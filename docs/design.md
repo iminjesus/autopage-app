@@ -329,9 +329,29 @@ and is separated by **speed**. A lean for expression drifts in over a second or
 more; a tilt meant as a command arrives in about a third of one. Measured
 against both, inside a 300ms window: an expressive lean to 20 degrees over 1.5s
 moves 3.6 degrees, one to 25 degrees over 2.5s moves 2.7, and a deliberate tilt
-to 20 degrees moves 11 to 18. The requirement is seventeen degrees of angle and
-eight degrees of change within 300ms, and both have to hold. Calibration
-replaces the angle with half of the tilt actually performed.
+moves 11 to 18.
+
+**Where that went wrong was asking it of every frame.** Past the angle *and*
+still moving fast, five frames running, is a condition you can only satisfy by
+overshooting — you have to be accelerating through seventeen degrees, so you
+finish at twenty-five. Reported as "the tilt has to be too big, my neck hurts",
+and as working intermittently, which was the same fact seen from the other side:
+whether the two conditions happened to overlap for long enough was a matter of
+timing luck.
+
+Arriving quickly is a fact about how the head *got* here, not about what it is
+doing this instant. So the onset is **latched**: once the head has moved
+decisively away from level, that counts for the next 0.6 seconds, and the frames
+after it only have to hold the angle. Flick it over and stop. With the speed
+test no longer competing with the angle, the angle came down to **twelve
+degrees**, and calibration is capped at that rather than scaled from it — a
+demonstrative tilt during calibration should not sentence anyone to
+demonstrative tilts forever.
+
+Away from level, not back towards it. Straightening up from a lean is quick too,
+and it sweeps back down through every angle it came up through — which is how "I
+looked back up and the page had turned" happens. Only movement that deepens a
+tilt starts one.
 
 The anti-shake veto does **not** apply in this mode, and applying it made the
 gesture veto itself. It exists because a wink moves no head at all, so head
@@ -342,10 +362,15 @@ arriving at the speed this mode demands registered as a shake and threw away the
 first four frames of every one. Two test cases caught that, and nothing else
 would have.
 
-The test pins the rest: leans of seven, ten and fourteen degrees held for two
-seconds turn nothing, expressive leans to twenty and twenty-five degrees turn
-nothing, a deliberate tilt right turns forward and a deliberate tilt left turns
-back, and winking in tilt mode does nothing at all.
+The test drives the head along **paths** rather than stepping it — legs of
+[angle, seconds], because a neck cannot step, and that stopped being a detail
+the moment the angle came down far enough that only the speed of the movement
+separates a command from a lean. It pins: a fourteen-degree flick turns the page
+either way; the same flick with no dwell does not; eight degrees however fast
+does not; twenty degrees drifted into over 1.5s does not; settling into a ten or
+fourteen degree lean and holding it for two seconds does not; straightening up
+from a twenty-degree lean does not; holding a flick for three seconds turns
+exactly one page; and winking in tilt mode does nothing at all.
 
 Which gesture is in use is a setting, and a calibration belongs to the gesture
 it was measured on: the panel says so rather than applying wink numbers to

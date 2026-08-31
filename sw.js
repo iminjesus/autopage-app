@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v6";
+const CACHE = "autopage-v7";
 const ASSETS = [
   "./",
   "./index.html",

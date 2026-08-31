@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01m ipad";
+const BUILD = "2026-09-01n gentler-tilt";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -427,21 +427,32 @@ const MODE_KEY = "autopage.gestureMode";
 // they are gone: a brow raise was a second scale to calibrate, a second thing
 // to explain, and one that could only ever mean one of the two directions.
 //
-// Deliberately large. Leaning in to read a low stave, or settling into a
-// phrase, is a real tilt of ten degrees or so, and a threshold near that would
-// turn pages on posture. Seventeen is past where anyone drifts by accident, and
-// calibration replaces it with a fraction of the tilt actually performed.
-const ROLL_THRESHOLD = 0.3; // radians, about 17 degrees
-// A tilt also has to arrive quickly.
+// Twelve degrees, down from seventeen, and the reason it can come down is a
+// change in what the speed test means.
 //
-// Nodding to the beat is pitch, and pitch does not change the angle between the
-// eyes at all, so it is invisible here. Leaning the head over for expression
-// does change it, and can reach the same angle a deliberate tilt does — but it
-// drifts in over a second or more, where a tilt meant as a command arrives in
-// about a third of one. Measured against both: an expressive lean to 20 degrees
-// over 1.5s moves 3.6 degrees inside a 300ms window, and a deliberate tilt to
-// the same angle moves 11 to 18.
+// A tilt also has to arrive quickly, because angle alone does not say whether
+// it was meant. Nodding to the beat is pitch, and pitch does not change the
+// angle between the eyes at all, so it is invisible here. Leaning the head over
+// for expression does change it, and reaches the same angles a command does —
+// but it drifts in over a second or more where a command arrives in about a
+// third of one. Measured against both, inside a 300ms window: an expressive
+// lean to 20 degrees over 1.5s moves 3.6 degrees, one to 25 over 2.5s moves
+// 2.7, and a deliberate tilt moves 11 to 18.
+//
+// The mistake was asking that of *every* frame of the gesture. Past the angle
+// AND still moving fast, for five frames running, is only satisfiable by
+// overshooting — you have to be accelerating through seventeen degrees, so you
+// end up at twenty-five, and it is the neck that pays. Reported as "tilt too
+// far, head hurts", and it was the rule, not the number.
+//
+// Arriving quickly is a fact about how the head got here, not about what it is
+// doing this instant. So the onset is latched: once the head has moved
+// decisively away from level, that counts for the next 0.6s, and the frames
+// after it only have to hold the angle. Flick it over and stop — which is what
+// the gesture always looked like it was asking for.
+const ROLL_THRESHOLD = 0.21; // radians, about 12 degrees
 const ROLL_RATE = 0.14; // radians of change within 300ms, about 8 degrees
+const ONSET_FRAMES = Math.round(0.6 * 30); // how long an onset stays good for
 
 let landmarker = null;
 let camStream = null;
@@ -465,6 +476,8 @@ const yawHistory = [];
 let yawSwing = 0;
 const rollHistory = [];
 let rollRate = 0;
+let onsetAge = Infinity; // frames since the head last moved away from level
+let onsetSign = 0; // and which way it went
 
 // Shaking the head sweeps the yaw back and forth; a wink does not move the
 // head at all. So the two are separable on an axis that has nothing to do with
@@ -715,12 +728,14 @@ function tiltSign() {
 }
 
 function tiltDirection(roll) {
-  // Both tests, and the speed one first: nodding to the beat is pitch and never
-  // appears here at all, but leaning into a phrase reaches the same angle a
-  // command does. What separates them is that the command arrives in about a
-  // third of a second and the lean drifts in over a second or more.
-  if (rollRate <= ROLL_RATE) return 0;
   if (Math.abs(roll) <= tiltLimit()) return 0;
+  // The onset is remembered rather than demanded of this frame — see the note
+  // on ROLL_THRESHOLD. Holding still at the angle is the rest of the gesture,
+  // and holding still is not something a neck should have to fight.
+  if (onsetAge > ONSET_FRAMES) return 0;
+  // A tilt that began to the left is not a tilt to the right, however far the
+  // head ends up over.
+  if (onsetSign !== Math.sign(roll)) return 0;
   return roll * tiltSign() > 0 ? 1 : -1;
 }
 
@@ -806,7 +821,18 @@ function headRoll(landmarks) {
 
   rollHistory.push(roll);
   while (rollHistory.length > Math.round(GESTURE_FPS * 0.3)) rollHistory.shift();
-  rollRate = Math.abs(roll - rollHistory[0]);
+  const delta = roll - rollHistory[0];
+  rollRate = Math.abs(delta);
+
+  onsetAge += 1;
+  // Away from level, not back towards it. Straightening up from a lean is quick
+  // too, and it sweeps back down through every angle it came up through — which
+  // is how "I looked back and the page had turned" happens. Only movement that
+  // deepens a tilt starts one.
+  if (rollRate > ROLL_RATE && delta * roll > 0) {
+    onsetAge = 0;
+    onsetSign = Math.sign(roll);
+  }
 
   return roll;
 }
@@ -900,6 +926,8 @@ function processFrame(landmarks, shapes) {
     yawSwing = 0;
     rollHistory.length = 0;
     rollRate = 0;
+    onsetAge = Infinity;
+    onsetSign = 0;
     if (calibrating) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
@@ -967,10 +995,11 @@ function processFrame(landmarks, shapes) {
     const towards = roll * tiltSign() > 0 ? "forward" : "back";
     const deg = (rad) => `${rad >= 0 ? "+" : ""}${((rad * 180) / Math.PI).toFixed(0)}°`;
     el.gestureAsym.textContent =
-      `tilt  roll ${deg(roll)} (${towards})  onset ${((rollRate * 180) / Math.PI).toFixed(0)}°/0.3s` +
+      `tilt  roll ${deg(roll)} (${towards})  moving ${((rollRate * 180) / Math.PI).toFixed(0)}°/0.3s` +
       `  ${gestureHold}/${requiredVotes()}f${unstable ? "  TURNED AWAY" : ""}\n` +
-      `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°  arriving faster than ` +
-      `${((ROLL_RATE * 180) / Math.PI).toFixed(0)}°/0.3s`;
+      `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°, flicked there faster than ` +
+      `${((ROLL_RATE * 180) / Math.PI).toFixed(0)}°/0.3s  —  ` +
+      `${onsetAge > ONSET_FRAMES ? "no flick yet" : `flicked ${onsetAge}f ago`}`;
     return decide(unstable ? 0 : tiltDirection(roll), unstable);
   }
 
@@ -1047,8 +1076,8 @@ const WINK_PHASES = [
 ];
 const TILT_PHASES = [
   { key: "noise", seconds: 6, prompt: "Look at the camera, head level. Sway a little, as you would playing." },
-  { key: "right", seconds: 6, prompt: "TILT your head to your RIGHT — quickly, then hold. Repeat a few times." },
-  { key: "left", seconds: 6, prompt: "TILT your head to your LEFT — quickly, then hold. Repeat a few times." },
+  { key: "right", seconds: 6, prompt: "Flick your head to your RIGHT and hold a moment. It does not have to go far. Repeat a few times." },
+  { key: "left", seconds: 6, prompt: "Flick your head to your LEFT and hold a moment. Repeat a few times." },
 ];
 const phases = () => (gestureMode === "tilt" ? TILT_PHASES : WINK_PHASES);
 
@@ -1065,12 +1094,13 @@ function describeGesture() {
 
   if (gestureMode === "tilt") {
     el.gestureHelp.textContent =
-      "Forward — tilt your head to your right.\n" +
-      "Back — tilt your head to your left.\n" +
-      `Go past about ${deg(tiltLimit())}° and get there quickly: a tilt meant as a ` +
-      "command arrives in about a third of a second, where leaning into a phrase " +
-      "drifts over. Nodding with the beat tips the head forward, a different " +
-      "axis, and never registers as a tilt at all.";
+      "Forward — flick your head to your right and hold a moment.\n" +
+      "Back — flick it to your left.\n" +
+      `About ${deg(tiltLimit())}° is enough — a small movement, done briskly. What ` +
+      "counts is that it arrives quickly, not that it goes far, so there is no " +
+      "reason to strain. Leaning into a phrase drifts over too slowly to " +
+      "register, straightening up again never counts, and nodding with the beat " +
+      "tips the head on a different axis the measure cannot see.";
   } else {
     el.gestureHelp.textContent =
       "Forward — wink your right eye and hold.\n" +
@@ -1305,9 +1335,11 @@ function finishTiltCalibration(noise, right, left) {
     return;
   }
 
-  // Half of what was performed: comfortably above the sway, comfortably below
-  // having to repeat the full gesture every time.
-  const limit = Math.min(0.45, Math.max(0.12, noiseLevel * 2, level * 0.5));
+  // A fraction of what was performed, and capped at the default rather than
+  // scaled from it. Calibrating with a big demonstrative tilt should not be a
+  // way to sentence yourself to big tilts forever — this can lower the bar, and
+  // the only thing that raises it is sway that would otherwise trip it.
+  const limit = Math.min(0.3, Math.max(0.12, noiseLevel * 2, level * 0.4));
   const separation = level / noiseLevel;
 
   calibration = {
@@ -1676,6 +1708,7 @@ window.__autopage = {
   get holdWindow() { return holdWindow(); },
   processFrame,
   setMode(mode) { gestureMode = mode === "tilt" ? "tilt" : "wink"; describeGesture(); },
+  get mode() { return gestureMode; },
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },
   get scale() { return CALIBRATION_SCALE; },
