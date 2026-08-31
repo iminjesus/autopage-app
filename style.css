@@ -132,8 +132,13 @@ body {
   font-weight: 600;
 }
 
+/* A dot, not a countdown. A number ticking down in the corner is something to
+   watch, and the one thing a player must not be doing mid-piece is watching the
+   app. It only says "the ending is close and I am listening for it". */
 .hud-armed {
   color: var(--armed);
+  font-size: 9px;
+  line-height: 1;
 }
 
 /* --- Navigation --- */

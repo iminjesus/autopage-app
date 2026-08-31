@@ -163,6 +163,17 @@ Precision is bounded by harmonic rhythm: chroma cannot resolve time inside a
 held chord, so a page ending on a dotted half is locatable to about a second.
 For a page turn, early is the safe direction anyway.
 
+### what the player sees
+
+The page number, the mode, and a dot that appears while the detector is
+listening for this page's ending. That is all.
+
+There was a countdown — "3 bars left" — and it was worse than useless. A number
+ticking down in the corner is something to watch, and the one thing a player
+must not be doing mid-piece is watching the app. It also described the schedule,
+which is no longer what turns the page, so it invited exactly the wrong mental
+model. Bars remaining is now diagnostics, in the panel, out of the way.
+
 ### gesture — the complement
 
 Face landmark detection, running locally (no audio or video leaves the device).

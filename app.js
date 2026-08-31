@@ -586,7 +586,7 @@ function scheduleTurn() {
   state.turnAt = state.pageStartedAt + (bars - lead) * secondsPerBar();
 }
 
-/** Bars left on this page, for the countdown. */
+/** Bars left on this page. Diagnostics only — never shown over the score. */
 function barsRemaining(now) {
   if (state.turnAt === null) return null;
   return Math.max(0, (state.turnAt - now) / secondsPerBar());
@@ -761,8 +761,10 @@ function onFeatureFrame() {
     resyncTiming();
     setStatus("Following the music.");
   } else if (!state.playing) {
+    // Hold the schedule where it is rather than letting it run through a
+    // silence. On the last page there is no turn to postpone.
     state.pageStartedAt += HOP_MS / 1000;
-    state.turnAt += HOP_MS / 1000;
+    if (state.turnAt !== null) state.turnAt += HOP_MS / 1000;
     return;
   }
 
@@ -956,12 +958,12 @@ function renderDiag() {
     .join(" ");
   const flag = (on, label) => (on ? `<b>${label}</b>` : label);
   el.diag.innerHTML = [
-    `build ${BUILD}`,
     `bars/page ${pages || "—"}   (! = no template, turns on time)`,
     `mic ${analyser ? "on" : "OFF"}   tonality ${state.tonality.toFixed(2)} / ${TONALITY_MIN}   ` +
       `${flag(state.playing, "playing")}   ${flag(state.started, "started")}`,
     `match ${state.confidence.toFixed(2)} / ${MATCH_THRESHOLD}   ` +
       `${flag(state.armed, "armed")}   last turn: ${state.turnedBy || "—"}`,
+    `bars left ${(barsRemaining(nowSeconds()) ?? 0).toFixed(1)}   build ${BUILD}`,
   ].join("\n");
 }
 
@@ -981,12 +983,7 @@ function render() {
   el.prevBtn.disabled = state.page <= 1;
   el.nextBtn.disabled = state.page >= state.pageCount;
 
-  const bars = state.mode === "auto" && state.started ? barsRemaining(nowSeconds()) : null;
-  el.hudArmed.hidden = bars === null;
-  if (bars !== null) {
-    el.hudArmed.textContent =
-      bars < 1 ? "turning…" : `${Math.ceil(bars)} bar${Math.ceil(bars) === 1 ? "" : "s"} left`;
-  }
+  el.hudArmed.hidden = !(state.mode === "auto" && state.armed);
 
   el.meter.hidden = !(state.mode === "auto" && state.templates.has(state.page));
   el.meterFill.style.width = `${Math.round(state.confidence * 100)}%`;
