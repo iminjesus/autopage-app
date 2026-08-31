@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31o calibration-state-visible";
+const BUILD = "2026-08-31p calibration-save-load-agree";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -921,6 +921,9 @@ const holdFrames = () =>
 // 1.0, so this is a little under half a wink.
 const DEFAULT_ASYM_THRESHOLD = 0.45;
 const CALIBRATION_KEY = "autopage.wink";
+// Stamped into a saved calibration. Its numbers only mean anything on the scale
+// that produced them, and the eyelid-geometry scale is not the blink-score one.
+const CALIBRATION_SCALE = "eyelid-v1";
 
 let landmarker = null;
 let camStream = null;
@@ -935,6 +938,7 @@ let lastGestureAt = 0;
 let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
+let staleCalibration = false; // a saved calibration from an older measurement
 let prevPoints = null;
 let headMotion = 0;
 let headYaw = 0;
@@ -975,12 +979,21 @@ function notePeaks(left, right, net) {
  */
 function showCalibrationState() {
   el.gestureStatus.hidden = false;
-  el.gestureStatus.textContent = calibration
-    ? `Calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser ` +
-      `(separation x${calibration.separation.toFixed(1)}, threshold ` +
-      `${calibration.threshold.toFixed(2)}). Recalibrate any time to replace it.`
-    : "Not calibrated — running on defaults. Switch on Wink to turn, then press " +
+  if (calibration) {
+    el.gestureStatus.textContent =
+      `Calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser ` +
+      `(separation x${(calibration.separation ?? 0).toFixed(1)}, threshold ` +
+      `${(calibration.threshold ?? 0).toFixed(2)}). Recalibrate any time to replace it.`;
+  } else if (staleCalibration) {
+    el.gestureStatus.textContent =
+      "A saved calibration was discarded — it was measured the old way, before " +
+      "the switch to eyelid geometry, so its numbers mean nothing now. " +
+      "Calibrate once more and it will stick.";
+  } else {
+    el.gestureStatus.textContent =
+      "Not calibrated — running on defaults. Switch on Wink to turn, then press " +
       "Calibrate. It is stored in this browser and only needs doing once.";
+  }
 }
 
 function loadHold() {
@@ -993,10 +1006,14 @@ function loadCalibration() {
   try {
     const raw = localStorage.getItem(CALIBRATION_KEY);
     calibration = raw ? JSON.parse(raw) : null;
-    if (calibration && Math.min(calibration.rightLevel ?? 0, calibration.leftLevel ?? 0) < 0.3) {
-      // Measured from noise rather than from a wink — including anything saved
-      // by the blink-score version, whose numbers mean nothing on this scale.
+    // Only one rule decides whether a calibration is usable, and it runs when
+    // the calibration is made. Having a second, stricter rule here meant a
+    // result could be accepted, shown as saved, and then silently thrown away
+    // on the next load — which looked exactly like calibration not persisting.
+    // What is checked here is only whether it came from this scale at all.
+    if (calibration && calibration.scale !== CALIBRATION_SCALE) {
       calibration = null;
+      staleCalibration = true;
       localStorage.removeItem(CALIBRATION_KEY);
     }
     if (calibration?.noiseLevel && calibration?.rightLevel && calibration?.leftLevel) {
@@ -1358,9 +1375,11 @@ function finishCalibration() {
   }
 
   calibration = {
+    scale: CALIBRATION_SCALE,
     threshold, separation, forwardSign, rightLevel, leftLevel, noiseLevel,
     savedAt: new Date().toISOString().slice(0, 10),
   };
+  staleCalibration = false;
   try {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}

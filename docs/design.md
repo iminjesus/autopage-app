@@ -291,9 +291,12 @@ their face and show them the number.
 It is done once. The result is stored in the browser and survives reloads, new
 tabs and restarts — verified, not assumed. It is per browser and per origin, so
 serving the app on a different port is a different store, and a private window
-forgets it on close. A calibration whose wink levels look like noise is
-discarded on load rather than obeyed, which also clears anything saved by the
-blink-score version, whose numbers mean nothing on the eyelid scale.
+forgets it on close. Exactly one rule decides whether a calibration is usable, and it runs when the
+calibration is made. A second, stricter rule on the load path meant a result
+could be accepted, shown as saved, and then silently thrown away on the next
+load — which is indistinguishable from calibration not persisting at all, and
+was reported as exactly that. Load now only checks that a calibration came from
+the current measurement scale, and says so when it discards one that did not.
 
 Three phases: blink normally, wink right and hold, wink left and hold. Normal
 blinking establishes the asymmetry this has to clear — the noise floor — and

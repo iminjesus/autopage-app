@@ -1,36 +1,36 @@
 import { chromium } from "playwright-core";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-  args: ["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream"] });
+const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
 const ctx = await b.newContext();
 const p = await ctx.newPage();
-await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+const open = async () => {
+  await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+  await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-g.pdf");
+  await p.waitForFunction(() => window.__autopage.state.templates.size >= 3);
+};
+const save = (obj) => p.evaluate((o) => localStorage.setItem("autopage.wink", JSON.stringify(o)), obj);
+const state = () => p.evaluate(() => ({
+  loaded: !!window.__autopage.calibration,
+  stored: !!localStorage.getItem("autopage.wink"),
+  status: document.getElementById("gestureStatus").textContent.slice(0, 60),
+}));
 
-// Stand in for a completed calibration, on the eyelid-geometry scale.
-await p.evaluate(() => localStorage.setItem("autopage.wink", JSON.stringify({
-  threshold: 0.42, separation: 6.1, forwardSign: 1,
-  rightLevel: 0.81, leftLevel: 0.78, noiseLevel: 0.08, savedAt: "2026-08-31",
-})));
-await p.evaluate(() => localStorage.setItem("autopage.winkHold", "60"));
+await open();
 
-await p.reload({ waitUntil: "networkidle" });
-console.log("after reload  ->", JSON.stringify(await p.evaluate(() => ({
-  calibration: window.__autopage.calibration,
-  holdField: document.getElementById("holdInput").value,
-}))));
+// A weak but genuine calibration — the kind the old load rule threw away.
+await save({ scale: "eyelid-v1", threshold: 0.2, separation: 2.0, forwardSign: 1,
+             rightLevel: 0.25, leftLevel: 0.22, noiseLevel: 0.1, savedAt: "2026-08-31" });
+await open();
+console.log("weak but valid   ->", JSON.stringify(await state()));
 
-// A second, fully independent page in the same browser profile.
-const p2 = await ctx.newPage();
-await p2.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
-console.log("new tab       ->", JSON.stringify(await p2.evaluate(() => window.__autopage.calibration?.threshold)));
+// Anything from the previous measurement scale must go, and say so.
+await save({ threshold: 0.15, separation: 1.6, forwardSign: 1,
+             rightLevel: 0.10, leftLevel: 0.14, noiseLevel: 0.06 });
+await open();
+console.log("old scale        ->", JSON.stringify(await state()));
 
-// And a calibration built from noise must be thrown away, not obeyed.
-await p2.evaluate(() => localStorage.setItem("autopage.wink", JSON.stringify({
-  threshold: 0.15, separation: 1.6, forwardSign: 1,
-  rightLevel: 0.10, leftLevel: 0.14, noiseLevel: 0.06,
-})));
-await p2.reload({ waitUntil: "networkidle" });
-console.log("noise-built   ->", JSON.stringify(await p2.evaluate(() => ({
-  calibration: window.__autopage.calibration,
-  stillStored: localStorage.getItem("autopage.wink"),
-}))));
+// A strong one survives, obviously.
+await save({ scale: "eyelid-v1", threshold: 0.42, separation: 6.1, forwardSign: 1,
+             rightLevel: 0.81, leftLevel: 0.78, noiseLevel: 0.08, savedAt: "2026-08-31" });
+await open();
+console.log("strong           ->", JSON.stringify(await state()));
 await b.close();
