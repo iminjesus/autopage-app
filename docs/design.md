@@ -301,9 +301,19 @@ depends on are obstructed rather than merely noisy — no threshold reaches past
 that, and calibrating with the glasses on only makes it intermittent.
 
 Brows are above the lenses. They are unobstructed, high contrast, and they do
-not move on their own while playing. Raising them turns forward and frowning
-turns back, which keeps the gesture bidirectional without needing left and right
-to be told apart.
+not move on their own while playing. Raising them turns forward.
+
+Frowning does not work for going back, and for the same reason winking does not:
+the frame sits exactly where the brow travels down to, and the score for it is
+the weaker half of the pair to begin with. Going back is a **head tilt** — the
+angle of the line between the eyes, which is geometry with no lens anywhere
+near it.
+
+A tilt has to be deliberate to count. Leaning in to read a low stave is a real
+ten degrees, and a threshold near that would turn pages on posture; seventeen is
+past where anyone drifts, and calibration replaces it with a fraction of the
+tilt actually performed. The test pins leans of seven, ten and fourteen degrees
+held for two seconds as turning nothing.
 
 This one uses the model's expression scores rather than geometry, and that is
 consistent rather than contradictory: the scores failed for winking because they

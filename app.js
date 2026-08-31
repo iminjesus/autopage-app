@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01h brows-for-glasses";
+const BUILD = "2026-09-01i tilt-to-go-back";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -411,6 +411,20 @@ const MODE_KEY = "autopage.gestureMode";
 // are good at.
 const BROW_THRESHOLD = 0.35;
 
+// Going back is a head tilt, not a frown.
+//
+// Frowning reads badly behind glasses for the same reason winking does: the
+// frame sits exactly where the brow travels down to, and the score for it is
+// the weaker half of the pair to begin with. Raising the brows is unobstructed
+// and works; lowering them does not. A tilt is geometry — the angle of the line
+// between the eyes — so no lens is in its way at all, and holding a head over
+// to one side is not something that happens by accident at the keyboard.
+// Deliberately large. Leaning in to read a low stave, or settling into a
+// phrase, is a real tilt of ten degrees or so, and a threshold near that would
+// turn pages on posture. Seventeen is past where anyone drifts by accident, and
+// calibration replaces it with a fraction of the tilt actually performed.
+const ROLL_THRESHOLD = 0.3; // radians, about 17 degrees
+
 let landmarker = null;
 let camStream = null;
 let gestureTimer = null;
@@ -637,10 +651,13 @@ function minAbsDiff() {
   return calibration?.minAbsDiff ?? MIN_ABS_DIFF;
 }
 
-function browDirection(signal) {
-  const towards = signal > 0 ? 1 : -1;
-  const threshold = calibration?.brow?.[towards > 0 ? "forward" : "back"] ?? BROW_THRESHOLD;
-  return Math.abs(signal) > threshold ? towards : 0;
+function browDirection(brow, roll) {
+  // Back is checked first: a tilted head can raise the brows a little as it
+  // goes, and the tilt is the deliberate half of that pair.
+  const rollLimit = calibration?.brow?.back ?? ROLL_THRESHOLD;
+  if (Math.abs(roll) > rollLimit) return -1;
+  const browLimit = calibration?.brow?.forward ?? BROW_THRESHOLD;
+  return brow > browLimit ? 1 : 0;
 }
 
 function winkDirection(signedAsym, absDiff) {
@@ -723,10 +740,15 @@ function eyeOf(landmarks, points) {
  * reference to learn — the scores are already relative to a neutral face.
  */
 function browSignal(shapes) {
-  const up = blendshape(shapes, "browInnerUp");
-  const down =
-    (blendshape(shapes, "browDownLeft") + blendshape(shapes, "browDownRight")) / 2;
-  return up - down;
+  return blendshape(shapes, "browInnerUp");
+}
+
+/** How far the head is tilted, in radians, from the line between the eyes. */
+function headRoll(landmarks) {
+  const a = landmarks[33];
+  const b = landmarks[263];
+  if (!a || !b) return 0;
+  return Math.atan2(b.y - a.y, b.x - a.x);
 }
 
 function eyeSignal(landmarks) {
@@ -839,7 +861,14 @@ function processFrame(landmarks, shapes) {
   const bsDiff = blendshape(shapes, "eyeBlinkLeft") - blendshape(shapes, "eyeBlinkRight");
 
   if (calibrating) {
-    const value = gestureMode === "brow" ? browSignal(shapes) : asym;
+    // In brow mode the two directions are measured on different scales — a
+    // score for the raise, radians for the tilt — so each phase records its own.
+    const value =
+      gestureMode !== "brow"
+        ? asym
+        : calibrating.index === 2
+        ? Math.abs(headRoll(landmarks))
+        : browSignal(shapes);
     return sampleCalibration(value, Math.abs(value), gestureMode === "brow" ? 1 : absDiff);
   }
 
@@ -880,7 +909,7 @@ function processFrame(landmarks, shapes) {
 
   const direction =
     gestureMode === "brow"
-      ? browDirection(browSignal(shapes))
+      ? browDirection(browSignal(shapes), headRoll(landmarks))
       : winkDirection(signed, absDiff);
 
   recent.push(direction);
@@ -928,7 +957,7 @@ const WINK_PHASES = [
 const BROW_PHASES = [
   { key: "noise", seconds: 6, prompt: "Look at the camera with a relaxed face." },
   { key: "right", seconds: 6, prompt: "RAISE your eyebrows and hold. Repeat a few times." },
-  { key: "left", seconds: 6, prompt: "FROWN — brows down — and hold. Repeat a few times." },
+  { key: "left", seconds: 6, prompt: "TILT your head to one side and hold. Repeat a few times." },
 ];
 const phases = () => (gestureMode === "brow" ? BROW_PHASES : WINK_PHASES);
 
@@ -1086,8 +1115,8 @@ function finishCalibration() {
   const brow =
     gestureMode === "brow"
       ? {
-          forward: Math.max(0.15, (noiseLevel + forward.level) / 2),
-          back: Math.max(0.15, (noiseLevel + back.level) / 2),
+          forward: Math.max(0.15, (noiseLevel + Math.abs(forward.level)) / 2),
+          back: Math.max(0.12, Math.abs(back.level) * 0.6),
         }
       : calibration?.brow;
 

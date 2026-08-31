@@ -8,16 +8,18 @@ await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
 
 const run = (label, opts) =>
-  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, mode = "wink" }) => {
-    let gapL = gL, gapR = gR;
+  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, roll: r0 = 0, mode = "wink" }) => {
+    let gapL = gL, gapR = gR, roll = r0;
     window.__autopage.setMode(mode);
     const A = window.__autopage;
     const before = A.state.page;
     // A face, made of the eleven points the app actually reads.
     const face = (t) => {
       const turn = hz ? yaw * Math.sin(2 * Math.PI * hz * t / 30) : (yaw || 0);
-      const L = { x: 0.56 + turn * 0.05, y: 0.32 };
-      const R = { x: 0.44 + turn * 0.05, y: 0.32 };
+      // roll is in radians: the eye line rotates, everything else follows.
+      const half = 0.06, cx = 0.5 + turn * 0.05, cy = 0.32;
+      const L = { x: cx + half * Math.cos(roll), y: cy + half * Math.sin(roll) };
+      const R = { x: cx - half * Math.cos(roll), y: cy - half * Math.sin(roll) };
       const pt = (x, y) => ({ x, y, z: 0 });
       const m = [];
       m[10] = pt(0.5, 0.20);            // forehead
@@ -30,7 +32,8 @@ const run = (label, opts) =>
       m[159] = pt(R.x, R.y - gapR / 2);
       m[145] = pt(R.x, R.y + gapR / 2);
       m[133] = pt(R.x + 0.02, R.y);
-      m[33] = pt(R.x - 0.02, R.y);
+      m[33] = pt(R.x - 0.02 * Math.cos(roll), R.y - 0.02 * Math.sin(roll));
+      m[263] = pt(L.x + 0.02 * Math.cos(roll), L.y + 0.02 * Math.sin(roll));
       return m;
     };
     const shapes = [
@@ -49,8 +52,17 @@ const run = (label, opts) =>
       { categoryName: "browDownLeft", score: 0 },
       { categoryName: "browDownRight", score: 0 },
     ];
-    const openFace = (t) => { const save = [gapL, gapR]; gapL = gapR = 0.015;
-      const f = face(t); [gapL, gapR] = save; return f; };
+    // Neutral means neutral in every channel — lids open, brows still, head
+    // level. Leaving any of them set holds the previous gesture down and the
+    // next one never counts as released.
+    const openFace = (t) => {
+      const save = [gapL, gapR, roll];
+      gapL = gapR = 0.015;
+      roll = 0;
+      const f = face(t);
+      [gapL, gapR, roll] = save;
+      return f;
+    };
     for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
     for (let t = 0; t < frames; t++) A.processFrame(face(t), shapes);
     return { label, from: before, to: A.state.page, turned: A.state.page !== before };
@@ -84,7 +96,11 @@ const browCases = [
   ["relaxed face 2s",      { gapL: open, gapR: open, frames: 60, brow: 0.0,  mode: "brow" }, false],
   ["brows raised 0.4s",    { gapL: open, gapR: open, frames: 12, brow: 0.7,  mode: "brow" }, true],
   ["brows raised 0.1s",    { gapL: open, gapR: open, frames: 3,  brow: 0.7,  mode: "brow" }, false],
-  ["frown held 0.4s",      { gapL: open, gapR: open, frames: 12, brow: -0.7, mode: "brow" }, true],
+  ["head tilt 20deg 0.4s", { gapL: open, gapR: open, frames: 12, roll: 0.35, mode: "brow" }, true],
+  ["head tilt the other way", { gapL: open, gapR: open, frames: 12, roll: -0.35, mode: "brow" }, true],
+  ["lean 7deg for 2s",     { gapL: open, gapR: open, frames: 60, roll: 0.12, mode: "brow" }, false],
+  ["lean 10deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.17, mode: "brow" }, false],
+  ["lean 14deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.24, mode: "brow" }, false],
   ["slight brow movement", { gapL: open, gapR: open, frames: 60, brow: 0.2,  mode: "brow" }, false],
   ["winking in brow mode", { gapL: open, gapR: shut, frames: 30, brow: 0.0,  mode: "brow" }, false],
 ];
