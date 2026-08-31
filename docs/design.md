@@ -309,11 +309,22 @@ the weaker half of the pair to begin with. Going back is a **head tilt** — the
 angle of the line between the eyes, which is geometry with no lens anywhere
 near it.
 
-A tilt has to be deliberate to count. Leaning in to read a low stave is a real
-ten degrees, and a threshold near that would turn pages on posture; seventeen is
-past where anyone drifts, and calibration replaces it with a fraction of the
-tilt actually performed. The test pins leans of seven, ten and fourteen degrees
-held for two seconds as turning nothing.
+A tilt has to be deliberate to count, and angle alone does not establish that.
+Players move their heads constantly — nodding to the beat, leaning into a
+phrase — and expression reaches the same angles a command does.
+
+Nodding is free: it is pitch, and pitch does not change the angle between the
+eyes at all, so it is invisible to this measure. Leaning sideways is not free,
+and is separated by **speed**. A lean for expression drifts in over a second or
+more; a tilt meant as a command arrives in about a third of one. Measured
+against both, inside a 300ms window: an expressive lean to 20 degrees over 1.5s
+moves 3.6 degrees, one to 25 degrees over 2.5s moves 2.7, and a deliberate tilt
+to 20 degrees moves 11 to 18. The requirement is seventeen degrees of angle and
+eight degrees of change within 300ms, and both have to hold.
+
+The test pins all of it: leans of seven, ten and fourteen degrees held for two
+seconds turn nothing, expressive leans to twenty and twenty-five degrees turn
+nothing, and a deliberate tilt over 0.3s turns back.
 
 This one uses the model's expression scores rather than geometry, and that is
 consistent rather than contradictory: the scores failed for winking because they

@@ -8,14 +8,15 @@ await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
 
 const run = (label, opts) =>
-  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, roll: r0 = 0, mode = "wink" }) => {
-    let gapL = gL, gapR = gR, roll = r0;
+  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, roll: r0 = 0, rise = 0, mode = "wink" }) => {
+    let gapL = gL, gapR = gR;
     window.__autopage.setMode(mode);
     const A = window.__autopage;
     const before = A.state.page;
     // A face, made of the eleven points the app actually reads.
-    const face = (t) => {
+    const face = (t, neutral = false) => {
       const turn = hz ? yaw * Math.sin(2 * Math.PI * hz * t / 30) : (yaw || 0);
+      const roll = neutral ? 0 : rise ? r0 * Math.min(1, t / (30 * rise)) : r0;
       // roll is in radians: the eye line rotates, everything else follows.
       const half = 0.06, cx = 0.5 + turn * 0.05, cy = 0.32;
       const L = { x: cx + half * Math.cos(roll), y: cy + half * Math.sin(roll) };
@@ -56,11 +57,10 @@ const run = (label, opts) =>
     // level. Leaving any of them set holds the previous gesture down and the
     // next one never counts as released.
     const openFace = (t) => {
-      const save = [gapL, gapR, roll];
+      const save = [gapL, gapR];
       gapL = gapR = 0.015;
-      roll = 0;
-      const f = face(t);
-      [gapL, gapR, roll] = save;
+      const f = face(t, true);
+      [gapL, gapR] = save;
       return f;
     };
     for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
@@ -101,6 +101,10 @@ const browCases = [
   ["lean 7deg for 2s",     { gapL: open, gapR: open, frames: 60, roll: 0.12, mode: "brow" }, false],
   ["lean 10deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.17, mode: "brow" }, false],
   ["lean 14deg for 2s",    { gapL: open, gapR: open, frames: 60, roll: 0.24, mode: "brow" }, false],
+  // Expression reaches the same angle, but it drifts there.
+  ["expressive lean 20deg over 1.5s", { gapL: open, gapR: open, frames: 90, roll: 0.35, rise: 1.5, mode: "brow" }, false],
+  ["expressive lean 25deg over 2.5s", { gapL: open, gapR: open, frames: 120, roll: 0.44, rise: 2.5, mode: "brow" }, false],
+  ["deliberate tilt over 0.3s",       { gapL: open, gapR: open, frames: 30, roll: 0.35, rise: 0.3, mode: "brow" }, true],
   ["slight brow movement", { gapL: open, gapR: open, frames: 60, brow: 0.2,  mode: "brow" }, false],
   ["winking in brow mode", { gapL: open, gapR: shut, frames: 30, brow: 0.0,  mode: "brow" }, false],
 ];

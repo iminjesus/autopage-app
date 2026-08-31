@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01i tilt-to-go-back";
+const BUILD = "2026-09-01j tilt-must-be-quick";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -424,6 +424,16 @@ const BROW_THRESHOLD = 0.35;
 // turn pages on posture. Seventeen is past where anyone drifts by accident, and
 // calibration replaces it with a fraction of the tilt actually performed.
 const ROLL_THRESHOLD = 0.3; // radians, about 17 degrees
+// A tilt also has to arrive quickly.
+//
+// Nodding to the beat is pitch, and pitch does not change the angle between the
+// eyes at all, so it is invisible here. Leaning the head over for expression
+// does change it, and can reach the same angle a deliberate tilt does — but it
+// drifts in over a second or more, where a tilt meant as a command arrives in
+// about a third of one. Measured against both: an expressive lean to 20 degrees
+// over 1.5s moves 3.6 degrees inside a 300ms window, and a deliberate tilt to
+// the same angle moves 11 to 18.
+const ROLL_RATE = 0.14; // radians of change within 300ms, about 8 degrees
 
 let landmarker = null;
 let camStream = null;
@@ -445,6 +455,8 @@ let headMotion = 0;
 let headYaw = 0;
 const yawHistory = [];
 let yawSwing = 0;
+const rollHistory = [];
+let rollRate = 0;
 
 // Shaking the head sweeps the yaw back and forth; a wink does not move the
 // head at all. So the two are separable on an axis that has nothing to do with
@@ -655,7 +667,7 @@ function browDirection(brow, roll) {
   // Back is checked first: a tilted head can raise the brows a little as it
   // goes, and the tilt is the deliberate half of that pair.
   const rollLimit = calibration?.brow?.back ?? ROLL_THRESHOLD;
-  if (Math.abs(roll) > rollLimit) return -1;
+  if (Math.abs(roll) > rollLimit && rollRate > ROLL_RATE) return -1;
   const browLimit = calibration?.brow?.forward ?? BROW_THRESHOLD;
   return brow > browLimit ? 1 : 0;
 }
@@ -748,7 +760,13 @@ function headRoll(landmarks) {
   const a = landmarks[33];
   const b = landmarks[263];
   if (!a || !b) return 0;
-  return Math.atan2(b.y - a.y, b.x - a.x);
+  const roll = Math.atan2(b.y - a.y, b.x - a.x);
+
+  rollHistory.push(roll);
+  while (rollHistory.length > Math.round(GESTURE_FPS * 0.3)) rollHistory.shift();
+  rollRate = Math.abs(roll - rollHistory[0]);
+
+  return roll;
 }
 
 function eyeSignal(landmarks) {
@@ -838,6 +856,8 @@ function processFrame(landmarks, shapes) {
     prevPoints = null;
     yawHistory.length = 0;
     yawSwing = 0;
+    rollHistory.length = 0;
+    rollRate = 0;
     if (calibrating) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
