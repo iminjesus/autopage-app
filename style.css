@@ -329,6 +329,42 @@ body {
   margin-bottom: 2px;
 }
 
+.gesture {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+/* Shown only while calibrating — the camera is not something to stare at, but
+   you do have to see your own face once to know it is in frame. */
+.cam {
+  width: 100%;
+  border-radius: 10px;
+  margin: 8px 0;
+  transform: scaleX(-1); /* a mirror, or aiming your face feels backwards */
+  background: #0b0d11;
+}
+
+.gesture-live {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#gestureAsym {
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.btn-small {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
 .diag {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

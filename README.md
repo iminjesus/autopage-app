@@ -8,8 +8,9 @@ A face gesture is always available as a complement, for when the detector
 misses or turns at the wrong moment.
 
 **Status: automatic turning works, with no setup and nothing to hear first.**
-Open a score, press Start, play. The face gesture complement is still stubbed.
-See
+Open a score, press Start, play. Winking turns pages too — right eye forward,
+left eye back — though that half is unverified: it was written without a camera
+to test it on, which is what the calibration screen is for. See
 [`docs/design.md`](docs/design.md) for the architecture and
 [`docs/decisions.md`](docs/decisions.md) for why it is built this way rather
 than the more obvious ways.

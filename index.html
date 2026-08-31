@@ -74,6 +74,22 @@
           <span class="meter-value" id="meterValue">0.00</span>
         </div>
 
+        <!-- ===== Wink to turn ===== -->
+        <div class="gesture">
+          <label class="field field-check">
+            <input type="checkbox" id="gestureCheck" />
+            <span>Wink to turn — right eye forward, left eye back</span>
+          </label>
+
+          <video id="camPreview" class="cam" playsinline muted hidden></video>
+
+          <div class="gesture-live" id="gestureLive" hidden>
+            <span id="gestureAsym">—</span>
+            <button id="calibrateBtn" class="btn btn-secondary btn-small">Calibrate</button>
+          </div>
+          <div class="trainer-status" id="gestureStatus" hidden></div>
+        </div>
+
         <div class="trainer-status" id="setupStatus">Open a score to begin.</div>
 
         <!-- Live state. Present because "it turns when I am not playing" is

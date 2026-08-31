@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v4";
+const CACHE = "autopage-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,6 +9,8 @@ const ASSETS = [
   "./icon.svg",
   "./vendor/pdf.js",
   "./vendor/pdf.worker.js",
+  // The face model and its runtime are 13MB and only fetched when the gesture
+  // is switched on, so they are cached on use rather than precached here.
 ];
 
 self.addEventListener("install", (e) => {

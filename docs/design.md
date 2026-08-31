@@ -174,23 +174,46 @@ must not be doing mid-piece is watching the app. It also described the schedule,
 which is no longer what turns the page, so it invited exactly the wrong mental
 model. Bars remaining is now diagnostics, in the panel, out of the way.
 
-### gesture — the complement
+### gesture — winking to turn
 
-Face landmark detection, running locally (no audio or video leaves the device).
-Two gestures: forward and back.
+A normal blink is symmetric; a wink is not. So the signal is the *difference*
+between the eyes, never how shut either one is. That is what makes it survive
+the conditions that break absolute measures — glasses reflecting the screen,
+stage lighting, someone squinting at a hard passage — because all of those
+affect both eyes together and cancel out of a difference.
 
-The gesture choice is constrained by what does *not* occur naturally while
-playing. Head nods and blinks are disqualified — musicians nod to the beat and
-blink constantly. Workable candidates are a sustained eyebrow raise, a wink, or
-a held head tilt, all requiring the pose to be held for 300–500ms to suppress
-false positives.
+Right eye forward, left eye back. Back matters at least as much: it is the
+recovery path when a page turns at the wrong moment.
 
-A gesture does two things: it turns the page, and it **resyncs the timing
-estimate** to the known position. Correcting once puts the automation back on
-track rather than merely overriding it.
+Head nods and plain blinks are disqualified outright — musicians do both
+constantly. The gesture must be something that does not occur while playing,
+and a unilateral eye closure is almost always deliberate.
 
-To keep battery and thermal cost down, inference can run only while the arming
-window is open, rather than continuously.
+Face landmarks run locally: no video leaves the device, and nothing is fetched
+from a network. The runtime and model are 13MB, so they are imported only when
+the gesture is switched on — someone who never uses it never pays for it.
+Inference runs at 12 frames a second, which is ample for a 400ms hold and a
+fraction of the cost of running at video rate.
+
+### calibration — the part that is not optional
+
+Thresholds cannot be constants. What a wink looks like through one person's
+glasses under their lighting is not what it looks like through another's, and
+the only honest way to know whether this works for someone is to measure it on
+their face and show them the number.
+
+Three phases: blink normally, wink right and hold, wink left and hold. Normal
+blinking establishes the asymmetry this has to clear — the noise floor — and
+the winks establish the signal. The result is reported as a separation ratio,
+and below about 1.5 the app says plainly that it is not reliable here and points
+at the pedal, the tap zones and the arrow keys instead of pretending.
+
+**Untested.** Everything else in this project was verified by measurement. This
+was not: there is no camera and no face in the environment it was written in.
+The pipeline is confirmed to load from local files, initialise, and process
+frames — and it correctly reports no face when there is none. Whether a wink is
+distinguishable from a blink through a given pair of glasses is exactly what the
+calibration screen exists to answer, on the user's own face.
 
 ### store
 

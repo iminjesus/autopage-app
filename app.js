@@ -78,6 +78,7 @@ for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "hud", "hudPage", "hudMode", "hudArmed", "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "startBtn", "leadInput", "diag",
+  "gestureCheck", "camPreview", "gestureLive", "gestureAsym", "gestureStatus", "calibrateBtn",
   "meter", "meterFill", "meterValue", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
@@ -884,16 +885,212 @@ function captureTemplate() {
 }
 
 // ============================================================
-// Gesture — the complement
+// Gesture — winking to turn
 //
-// Bidirectional and always live. Back matters more than forward: it is the
-// recovery path when the app turns early. Gestures must be ones that do not
-// occur while playing, so no nods and no blinks — musicians do both constantly.
+// A normal blink is symmetric and a wink is not, so the signal is the
+// *difference* between the eyes rather than how shut either one is. That is
+// what makes it survive the things that break absolute measures: glasses
+// reflecting the screen, stage lighting, or someone squinting at a hard
+// passage all affect both eyes together and cancel out of a difference.
+//
+// Right eye forward, left eye back. Back matters at least as much: it is the
+// recovery path when a page turns at the wrong moment.
 // ============================================================
 
+const GESTURE_FPS = 12; // a 400ms hold needs nothing faster, and this is cheap
+const GESTURE_HOLD_FRAMES = 5; // ~400ms
+const GESTURE_COOLDOWN_S = 1.2;
+const DEFAULT_ASYM_THRESHOLD = 0.5; // only used before anyone has calibrated
+const CALIBRATION_KEY = "autopage.wink";
+
+let landmarker = null;
+let camStream = null;
+let gestureTimer = null;
+let gestureHold = 0;
+let gestureDirection = 0;
+let lastGestureAt = 0;
+let calibration = null; // {threshold, separation}
+let calibrating = null; // {phase, samples, until}
+
+function loadCalibration() {
+  try {
+    const raw = localStorage.getItem(CALIBRATION_KEY);
+    calibration = raw ? JSON.parse(raw) : null;
+  } catch {
+    calibration = null; // private windows and blocked storage are not errors
+  }
+}
+
+const asymThreshold = () => calibration?.threshold ?? DEFAULT_ASYM_THRESHOLD;
+
 async function startGesture() {
-  // TODO: face landmarks, locally. Nothing leaves the device.
-  console.warn("startGesture: not implemented");
+  if (landmarker) return;
+
+  // Imported here rather than at the top: the model and its runtime are 13MB,
+  // and someone who never turns this on should never pay for them.
+  const { FaceLandmarker, FilesetResolver } = await import("./vendor/mediapipe/vision_bundle.js");
+  const fileset = await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
+  landmarker = await FaceLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: "./vendor/mediapipe/face_landmarker.task" },
+    outputFaceBlendshapes: true,
+    runningMode: "VIDEO",
+    numFaces: 1,
+  });
+
+  camStream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 640, height: 480, facingMode: "user" },
+  });
+  el.camPreview.srcObject = camStream;
+  await el.camPreview.play();
+
+  gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
+  el.gestureLive.hidden = false;
+}
+
+function stopGesture() {
+  clearInterval(gestureTimer);
+  gestureTimer = null;
+  if (camStream) camStream.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  el.camPreview.srcObject = null;
+  el.camPreview.hidden = true;
+  el.gestureLive.hidden = true;
+  landmarker?.close();
+  landmarker = null;
+}
+
+function blendshape(shapes, name) {
+  return shapes.find((c) => c.categoryName === name)?.score ?? 0;
+}
+
+function onGestureFrame() {
+  if (!landmarker || el.camPreview.readyState < 2) return;
+
+  const result = landmarker.detectForVideo(el.camPreview, performance.now());
+  const shapes = result.faceBlendshapes?.[0]?.categories;
+  if (!shapes) {
+    gestureHold = 0;
+    // Hold the calibration clock rather than filling a phase with nothing.
+    // Without this it counts down against an empty frame and reports a result
+    // built from no samples at all.
+    if (calibrating) {
+      calibrating.until += 1 / GESTURE_FPS;
+      el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
+    } else {
+      el.gestureAsym.textContent = "no face in frame";
+    }
+    return;
+  }
+
+  const left = blendshape(shapes, "eyeBlinkLeft");
+  const right = blendshape(shapes, "eyeBlinkRight");
+  // Mirrored: the viewer's right eye is the model's left.
+  const asym = left - right;
+
+  if (calibrating) return sampleCalibration(asym);
+
+  el.gestureAsym.textContent =
+    `wink ${asym >= 0 ? "+" : ""}${asym.toFixed(2)} / ${asymThreshold().toFixed(2)}` +
+    (calibration ? `  (x${calibration.separation.toFixed(1)})` : "  uncalibrated");
+
+  const direction = asym > asymThreshold() ? 1 : asym < -asymThreshold() ? -1 : 0;
+  gestureHold = direction !== 0 && direction === gestureDirection ? gestureHold + 1 : 0;
+  gestureDirection = direction;
+
+  if (gestureHold >= GESTURE_HOLD_FRAMES && nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S) {
+    gestureHold = 0;
+    lastGestureAt = nowSeconds();
+    state.turnedBy = "wink";
+    if (direction > 0) nextPage();
+    else prevPage();
+  }
+}
+
+// --- Calibration ---
+//
+// Thresholds cannot be constants here. What a wink looks like through one
+// person's glasses under their lighting is not what it looks like through
+// another's, and the only honest way to know whether this works for someone is
+// to measure it on their face and show them the number.
+
+const PHASES = [
+  { key: "noise", seconds: 6, prompt: "Look at the camera and blink normally." },
+  { key: "right", seconds: 6, prompt: "Wink your RIGHT eye and hold. Repeat a few times." },
+  { key: "left", seconds: 6, prompt: "Wink your LEFT eye and hold. Repeat a few times." },
+];
+
+function startCalibration() {
+  if (calibrating) {
+    // A second press cancels: a calibration that cannot see a face would
+    // otherwise wait forever with no way out.
+    calibrating = null;
+    el.camPreview.hidden = true;
+    el.gestureStatus.textContent = "Calibration cancelled.";
+    el.calibrateBtn.textContent = "Calibrate";
+    return;
+  }
+  el.calibrateBtn.textContent = "Cancel";
+  calibrating = { index: 0, samples: { noise: [], right: [], left: [] }, until: 0 };
+  el.camPreview.hidden = false;
+  nextCalibrationPhase();
+}
+
+function nextCalibrationPhase() {
+  const phase = PHASES[calibrating.index];
+  calibrating.until = nowSeconds() + phase.seconds;
+  el.gestureStatus.hidden = false;
+  el.gestureStatus.textContent = phase.prompt;
+}
+
+function percentile(values, p) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+}
+
+function sampleCalibration(asym) {
+  const phase = PHASES[calibrating.index];
+  calibrating.samples[phase.key].push(asym);
+  const left = Math.max(0, calibrating.until - nowSeconds());
+  el.gestureAsym.textContent = `${phase.prompt}  ${left.toFixed(0)}s`;
+  if (left > 0) return;
+
+  calibrating.index += 1;
+  if (calibrating.index < PHASES.length) return nextCalibrationPhase();
+
+  finishCalibration();
+}
+
+function finishCalibration() {
+  const { noise, right, left } = calibrating.samples;
+  calibrating = null;
+  el.camPreview.hidden = true;
+  el.calibrateBtn.textContent = "Calibrate";
+
+  // Blinks are symmetric, so their asymmetry is the noise this has to clear.
+  const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
+  const rightLevel = percentile(right, 0.9);
+  const leftLevel = -percentile(left.map((v) => -v), 0.9);
+  const winkLevel = Math.min(rightLevel, leftLevel);
+  const separation = winkLevel / noiseLevel;
+
+  const threshold = Math.max(noiseLevel * 1.6, (noiseLevel + winkLevel) / 2, 0.2);
+  calibration = { threshold, separation };
+  try {
+    localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
+  } catch {}
+
+  const verdict =
+    separation >= 2.5
+      ? "Good separation — winks are clearly distinct from blinks."
+      : separation >= 1.5
+      ? "Marginal. It will work but expect the occasional miss; better light or a closer camera helps."
+      : "Not reliable on this face and setup. Use the pedal, the tap zones, or an arrow key instead — " +
+        "the app will not pretend otherwise.";
+
+  el.gestureStatus.textContent =
+    `blink noise ${noiseLevel.toFixed(2)} · wink ${winkLevel.toFixed(2)} · ` +
+    `separation x${separation.toFixed(1)} · threshold ${threshold.toFixed(2)}\n${verdict}`;
 }
 
 // ============================================================
@@ -1099,6 +1296,23 @@ el.prevBtn.addEventListener("click", () => {
 });
 el.startBtn.addEventListener("click", startAuto);
 
+el.gestureCheck.addEventListener("change", async () => {
+  if (!el.gestureCheck.checked) return stopGesture();
+  el.gestureStatus.hidden = false;
+  el.gestureStatus.textContent = "Loading the face model…";
+  try {
+    await startGesture();
+    el.gestureStatus.textContent = calibration
+      ? "Ready. Right eye turns forward, left eye back."
+      : "Ready, but uncalibrated — press Calibrate to check it works with your glasses.";
+  } catch (err) {
+    el.gestureCheck.checked = false;
+    el.gestureStatus.textContent = `Camera unavailable — ${err.message}`;
+  }
+});
+
+el.calibrateBtn.addEventListener("click", startCalibration);
+
 el.leadInput.addEventListener("change", () => {
   state.leadBars = Math.max(0, Number(el.leadInput.value) || 0);
   buildTemplates(); // the template ends where the lead says the page does
@@ -1144,8 +1358,12 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+loadCalibration();
 render();
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
-window.__autopage = { state, matchScore, chromaLog, recentFrames, readPage, chromaOf, startListening };
+window.__autopage = {
+  state, matchScore, chromaLog, recentFrames, readPage, chromaOf, startListening,
+  startGesture, stopGesture, get calibration() { return calibration; },
+};
