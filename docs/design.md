@@ -163,6 +163,20 @@ Precision is bounded by harmonic rhythm: chroma cannot resolve time inside a
 held chord, so a page ending on a dotted half is locatable to about a second.
 For a page turn, early is the safe direction anyway.
 
+### every turn says where it came from
+
+Three explanations for turning on head movement have been wrong in a row, each
+of them plausible, and the reports that followed were necessarily vague — a page
+had changed and there was no way to know which path changed it. So no path is
+anonymous any more. Every turn is logged with its cause and the time: the audio
+matcher, the schedule, a wink, a key, or the tap zones, which cover the outer
+sixth of each side of the score and until now turned pages as silently as a
+misread wink did.
+
+A wink-fired turn also prints the nine frames leading up to it — both eyes, the
+difference, head yaw and yaw swing — so a turn nobody asked for explains itself
+after the fact, without anyone having to catch it happening.
+
 ### what the player sees
 
 The page number, the mode, and a dot that appears while the detector is

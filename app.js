@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-08-31q yaw-invariant-eye";
+const BUILD = "2026-08-31s every-turn-named";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -69,7 +69,8 @@ const state = {
   tonality: 0, // 0.29 is a flat chroma (noise); a played note is well above
   started: false, // has the performance begun at all
   turnAt: null, // seconds; when the schedule says this page ends
-  turnedBy: null, // "audio" | "schedule" | "manual" — what actually fired the last turn
+  turnedBy: null, // what fired the last turn
+  turnLog: [], // recent turns with their cause, so none of them is a mystery
   anchorIsEarly: false, // the anchor sits `leadBars` before the page's first bar
 };
 
@@ -939,6 +940,7 @@ let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
 let staleCalibration = false; // a saved calibration from an older measurement
+let lastWinkReport = ""; // kept so the evidence is still there to read later
 let prevPoints = null;
 let headMotion = 0;
 let headYaw = 0;
@@ -960,6 +962,29 @@ const MAX_YAW = 0.25; // head turned this far off centre: eye geometry unreliabl
 // "the threshold is wrong", and both have been guessed at for several rounds.
 const peaks = { l: 0, r: 0, net: 0, at: 0 };
 
+// A rolling record of the last few seconds, kept so that a turn nobody asked
+// for can be looked at afterwards instead of guessed about. Three explanations
+// for turning on head movement have been wrong so far, each of them plausible.
+const trace = [];
+const TRACE_FRAMES = 120; // four seconds at 30fps
+
+function recordFrame(row) {
+  trace.push(row);
+  if (trace.length > TRACE_FRAMES) trace.shift();
+}
+
+/** The frames leading up to a fire, as something that can be pasted back. */
+function traceReport(reason) {
+  const rows = trace.slice(-9);
+  const lines = rows.map(
+    (f) =>
+      `  ${f.t.toFixed(2)}s  L${f.l.toFixed(2)} R${f.r.toFixed(2)} ` +
+      `diff${f.d >= 0 ? "+" : ""}${f.d.toFixed(2)} yaw${f.y >= 0 ? "+" : ""}${f.y.toFixed(2)} ` +
+      `swing${f.s.toFixed(2)}${f.p ? "" : " TURNED"}`
+  );
+  return `Turned by ${reason}. The frames before it:\n${lines.join("\n")}`;
+}
+
 function notePeaks(left, right, net) {
   const now = nowSeconds();
   if (now - peaks.at > 3) {
@@ -979,6 +1004,7 @@ function notePeaks(left, right, net) {
  * which is a strange thing to have to do to answer "is it saved?".
  */
 function showCalibrationState() {
+  if (lastWinkReport) return; // do not paint over the evidence
   el.gestureStatus.hidden = false;
   if (calibration) {
     el.gestureStatus.textContent =
@@ -1231,6 +1257,10 @@ function gestureFrame() {
   // Movement still needs an answer. It will be a measured one this time.
   const shaking = yawSwing > MAX_YAW_SWING || !poseReliable;
 
+  recordFrame({
+    t: nowSeconds() % 1000,
+    l: left, r: right, d: asym, y: headYaw, s: yawSwing, p: poseReliable,
+  });
   notePeaks(left, right, asym);
   el.gestureAsym.textContent =
     `now  L ${left.toFixed(2)}  R ${right.toFixed(2)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
@@ -1272,6 +1302,11 @@ function gestureFrame() {
     gestureLatched = true;
     lastGestureAt = nowSeconds();
     state.turnedBy = "wink";
+    // Say what the numbers were, every time, so a wrong turn explains itself
+    // without anyone having to catch it happening.
+    el.gestureStatus.hidden = false;
+    el.gestureStatus.textContent = traceReport(direction > 0 ? "wink forward" : "wink back");
+    lastWinkReport = el.gestureStatus.textContent;
     if (direction > 0) nextPage();
     else prevPage();
   }
@@ -1447,6 +1482,19 @@ function turnTo(n) {
   if (!state.pageCount) return;
   const next = Math.min(Math.max(n, 1), state.pageCount);
   if (next === state.page) return;
+
+  // Every turn says where it came from. The tap zones cover the outer sixth of
+  // each side of the score, so a stray click turns a page as silently as a
+  // misread wink does, and "it changed and I do not know why" cannot be
+  // narrowed down while any path stays anonymous.
+  state.turnLog.push({
+    from: state.page,
+    to: next,
+    by: state.turnedBy ?? "tap or key",
+    at: new Date().toLocaleTimeString(),
+  });
+  if (state.turnLog.length > 6) state.turnLog.shift();
+  state.turnedBy = null;
   if (next === state.page + 1) {
     captureTemplate(); // only forward turns mark a page ending
     // A page heard out from one early turn to the next spans exactly its own
@@ -1492,6 +1540,13 @@ function renderDiag() {
     `match ${state.confidence.toFixed(2)} / ${MATCH_THRESHOLD}   ` +
       `${flag(state.armed, "armed")}   last turn: ${state.turnedBy || "—"}`,
     `bars left ${(barsRemaining(nowSeconds()) ?? 0).toFixed(1)}   build ${BUILD}`,
+    state.turnLog.length
+      ? "turns: " +
+        state.turnLog
+          .slice(-4)
+          .map((t) => `${t.from}\u2192${t.to} <b>${t.by}</b> ${t.at}`)
+          .join("   ")
+      : "turns: none yet",
   ].join("\n");
 }
 
@@ -1518,8 +1573,10 @@ function render() {
   el.meterFill.classList.toggle("over", state.confidence >= MATCH_THRESHOLD);
   el.meterValue.textContent = state.confidence.toFixed(2);
 
-  if (state.mode === "auto" && state.turnedBy) {
-    el.hudMode.textContent = state.turnedBy === "audio" ? "Auto · heard" : "Auto · clock";
+  const lastBy = state.turnLog[state.turnLog.length - 1]?.by;
+  if (state.mode === "auto" && lastBy) {
+    el.hudMode.textContent =
+      lastBy === "audio" ? "Auto · heard" : lastBy === "wink" ? "Auto · wink" : "Auto · " + lastBy;
   }
   renderDiag();
   el.startBtn.textContent = state.mode === "auto" ? "Stop" : "Start";
@@ -1617,12 +1674,15 @@ el.score.addEventListener("drop", (e) => {
   loadFile(e.dataTransfer && e.dataTransfer.files[0]);
 });
 
+// Named apart from the keyboard on purpose: a stray click on the tap zone and a
+// stray keypress look identical in a log that calls both "manual", and telling
+// them apart is the whole point of the log.
 el.nextBtn.addEventListener("click", () => {
-  state.turnedBy = "manual";
+  state.turnedBy = "tap zone";
   nextPage();
 });
 el.prevBtn.addEventListener("click", () => {
-  state.turnedBy = "manual";
+  state.turnedBy = "tap zone";
   prevPage();
 });
 el.startBtn.addEventListener("click", startAuto);
@@ -1678,11 +1738,11 @@ el.setupToggle.addEventListener("click", () => {
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
   if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
-    state.turnedBy = "manual";
+    state.turnedBy = `key ${e.key === " " ? "space" : e.key}`;
     nextPage();
   }
   if (e.key === "ArrowLeft" || e.key === "PageUp") {
-    state.turnedBy = "manual";
+    state.turnedBy = `key ${e.key}`;
     prevPage();
   }
 });

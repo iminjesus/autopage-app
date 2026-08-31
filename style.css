@@ -365,6 +365,13 @@ body {
   font-size: 12px;
 }
 
+.gesture .trainer-status {
+  white-space: pre-line;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .diag {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
