@@ -1,5 +1,6 @@
 import { chromium } from "playwright-core";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+import { executablePath } from "./browser.mjs";
+const b = await chromium.launch({ executablePath,
   args: ["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream"] });
 const p = await b.newPage();
 const errs = [];

@@ -5,9 +5,10 @@
 // leave, if the only thing on offer is a file picker pointed at an iCloud Drive
 // that may not contain a single PDF.
 import { chromium } from "playwright-core";
+import { executablePath } from "./browser.mjs";
 import { execFileSync } from "node:child_process";
 
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+const b = await chromium.launch({ executablePath });
 const errs = [];
 
 // --- A laptop: the QR is the way across to the tablet ---
@@ -25,11 +26,22 @@ const paths = [...svg.matchAll(/M(\d+) (\d+)h1v1h-1z/g)].map((m) => [+m[2], +m[1
 const view = svg.match(/viewBox="0 0 (\d+)/)[1] | 0;
 const grid = Array.from({ length: view }, () => new Array(view).fill(0));
 for (const [r, c] of paths) grid[r][c] = 1;
-const decoded = execFileSync("python3", ["tools/qr-decode.py"], {
-  input: grid.map((r) => r.join("")).join("\n"),
-}).toString().trim().replace(/^'|'$/g, "");
 const want = await p.evaluate(() => location.href);
-console.log(`${decoded === want ? "ok  " : "FAIL"} the code on the page scans to ${decoded}`);
+// The decoder is an optional extra (opencv + numpy). A container without it
+// should say so and move on rather than turn the suite red for a reason that
+// has nothing to do with the app — see tools/browser.mjs for the same lesson.
+let decoded = null;
+try {
+  decoded = execFileSync("python3", ["tools/qr-decode.py"], {
+    input: grid.map((r) => r.join("")).join("\n"),
+    stdio: ["pipe", "pipe", "pipe"],
+  }).toString().trim().replace(/^'|'$/g, "");
+} catch {
+  console.log("skip the code on the page: no decoder here (python3 -m pip install opencv-python-headless numpy)");
+}
+if (decoded !== null) {
+  console.log(`${decoded === want ? "ok  " : "FAIL"} the code on the page scans to ${decoded}`);
+}
 
 // --- A tablet: no QR, and the Add to Home Screen steps instead ---
 const pad = await b.newContext({ viewport: { width: 834, height: 1194 }, hasTouch: true, isMobile: true });

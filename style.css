@@ -213,12 +213,24 @@ body {
 
 /* --- Setup panel --- */
 
+/* The panel is anchored to the bottom and grows upward, so without a ceiling a
+   long body pushes its own header off the top of the screen — and the header is
+   the only way to close it. On an iPad that left the thing open over half the
+   score with nothing to tap. It now stops at the viewport and the body scrolls
+   inside it, so the header is always reachable. */
 .panel {
   position: absolute;
   z-index: 2; /* controls must stay clickable where they overlap the tap zones */
   right: max(env(safe-area-inset-right), 16px);
   bottom: max(env(safe-area-inset-bottom), 16px);
   width: min(320px, calc(100% - 32px));
+  /* And a ceiling below the full height, so some score is always showing.
+     Filling the screen makes "tap outside to close" an escape with nowhere to
+     land — on a phone the panel reached 632px of 664. This is a score reader;
+     the settings are the thing that gives way. */
+  max-height: min(calc(100% - max(env(safe-area-inset-bottom), 16px) - 16px), 72%);
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: var(--radius);
@@ -228,6 +240,7 @@ body {
 
 .panel-head {
   width: 100%;
+  flex: 0 0 auto; /* never squeezed, never scrolled away */
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -255,6 +268,22 @@ body {
 
 .panel-body {
   padding: 0 16px 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; /* scrolling the panel must not drag the page */
+}
+
+/* One frame-by-frame dump of why a page turned is worth having and is twelve
+   lines long. Boxed, so a diagnostic cannot be the reason the panel is
+   unmanageable. */
+.warn {
+  border-left: 3px solid var(--armed);
+}
+
+#calibStatus {
+  max-height: 120px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .panel-desc {

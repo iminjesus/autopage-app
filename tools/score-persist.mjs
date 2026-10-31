@@ -4,7 +4,8 @@
 // and never think about, so it is also the one where a silent failure is worst:
 // it looks exactly like the app having forgotten, with nothing to read.
 import { chromium } from "playwright-core";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+import { executablePath } from "./browser.mjs";
+const b = await chromium.launch({ executablePath });
 const ctx = await b.newContext(); // one origin, one storage, across reloads
 const p = await ctx.newPage();
 

@@ -18,6 +18,7 @@
 // it in the browser would intercept the requests before the service worker ever
 // saw them, which is precisely the thing under test.
 import { chromium } from "playwright-core";
+import { executablePath } from "./browser.mjs";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -46,7 +47,7 @@ await new Promise((r) => server.listen(8131, r));
 const URL_BASE = "http://localhost:8131";
 
 const b = await chromium.launch({
-  executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  executablePath,
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
 });
 
@@ -89,8 +90,39 @@ await p.waitForFunction(
 );
 check(true, `it reports: "${(await p.textContent("#offlineState")).slice(0, 52)}…"`);
 
+// Turn a page, and wait for it to actually be stored rather than for a hopeful
+// interval — the camera is running at 30fps by now and a fixed sleep races it.
+//
+// Polled from here rather than with waitForFunction: that one treats the
+// Promise an async predicate returns as the truthy answer instead of awaiting
+// it, so it reported the write as done while the database still said otherwise.
+const storedPage = () =>
+  p.evaluate(
+    () =>
+      new Promise((res) => {
+        const r = indexedDB.open("autopage", 1);
+        r.onsuccess = () => {
+          const q = r.result.transaction("scores", "readonly").objectStore("scores").get("last");
+          q.onsuccess = () => res(q.result?.page ?? null);
+          q.onerror = () => res(null);
+        };
+        r.onerror = () => res(null);
+      })
+  );
+
+const until = async (predicate, ms = 15000) => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await predicate();
+    if (value) return value;
+    if (Date.now() > deadline) return null;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+};
+
 await p.keyboard.press("ArrowRight");
-await p.waitForTimeout(700);
+check(await until(async () => (await storedPage()) === 2),
+  "the turn is written to storage before anything else happens");
 
 // --- 3. Plane mode -----------------------------------------------------------
 await ctx.setOffline(true);

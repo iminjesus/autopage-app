@@ -1,5 +1,6 @@
 import { chromium } from "playwright-core";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+import { executablePath } from "./browser.mjs";
+const b = await chromium.launch({ executablePath });
 const p = await b.newPage({ viewport: { width: 1100, height: 800 } });
 await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
 await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-g.pdf");

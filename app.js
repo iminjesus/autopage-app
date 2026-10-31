@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-09-01q offline-first";
+const BUILD = "2026-10-31a panel-closes";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -52,7 +52,7 @@ for (const id of [
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "sampleBtn", "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
-  "offlineState", "offlineBtn",
+  "offlineState", "offlineBtn", "screenState",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeInput", "gestureHelp", "setupStatus",
@@ -176,6 +176,7 @@ async function openScore(bytes, name, startPage = 1) {
   // A page turner whose screen has gone dark is not a page turner. This is the
   // moment it starts to matter, so this is where it is asked for.
   keepAwake();
+  watchWakeLock();
   // And this is the moment the gesture is about to be wanted. If the camera is
   // not already running, starting it here is what pulls the model down — while
   // there is still, presumably, a network.
@@ -1414,6 +1415,34 @@ document.addEventListener("visibilitychange", () => {
 const wakeState = () =>
   !("wakeLock" in navigator) ? "unsupported" : wakeLock ? "held" : "off";
 
+/**
+ * Ask again, periodically, for as long as a score is open.
+ *
+ * One request at the moment the score opens is not enough, and a screen that
+ * has quietly gone back to dimming is indistinguishable from one that was never
+ * held — it was reported as "screen off" on an iPad with a score up. The system
+ * takes the lock back on its own (a trip to the home screen, a low battery, a
+ * refusal while the document was not yet visible), and the handle does not come
+ * back with it. Asking again costs nothing when it is already held.
+ */
+let wakeTimer = null;
+
+function watchWakeLock() {
+  clearInterval(wakeTimer);
+  wakeTimer = setInterval(() => {
+    if (state.doc && !wakeLock && document.visibilityState === "visible") keepAwake();
+  }, 20000);
+}
+
+// A touch is the one moment Safari is certain to allow it, so take it.
+document.addEventListener(
+  "pointerdown",
+  () => {
+    if (state.doc && !wakeLock) keepAwake();
+  },
+  { passive: true }
+);
+
 // ============================================================
 // Store — the score itself, so it does not have to be picked again
 //
@@ -1464,17 +1493,41 @@ async function rememberScore(bytes, name, page) {
 }
 
 let pageWrite = null;
+let pendingPage = null;
+
+async function writePage(page) {
+  try {
+    const rec = await dbDo("readonly", (store) => store.get(LAST));
+    if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, page }, LAST));
+  } catch {}
+}
+
 function rememberPage(page) {
   // Turns come in bursts while someone finds their place. One write after the
-  // bursts stops is all the next launch needs.
+  // bursts stop is all the next launch needs.
+  pendingPage = page;
   clearTimeout(pageWrite);
   pageWrite = setTimeout(async () => {
-    try {
-      const rec = await dbDo("readonly", (store) => store.get(LAST));
-      if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, page }, LAST));
-    } catch {}
+    // Cleared when the write has actually landed, not when it was started. With
+    // the camera running the round trip can take a second or more, and a page
+    // still in flight is a page that has not been saved — the flush below has
+    // to be able to see it.
+    await writePage(page);
+    if (pendingPage === page) pendingPage = null;
   }, 400);
 }
+
+// Swiping the app away is the normal way to put it down, and it does not wait
+// for a debounce. Flush on the way out so the page you stopped on is the page
+// you come back to.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && pendingPage !== null) {
+    clearTimeout(pageWrite);
+    const page = pendingPage;
+    pendingPage = null;
+    writePage(page);
+  }
+});
 
 async function restoreLastScore() {
   try {
@@ -1541,7 +1594,29 @@ function showError(message) {
   el.scoreError.hidden = !message;
 }
 
+/**
+ * Whether the screen is actually being kept awake, in words.
+ *
+ * It was in the diagnostics line and nowhere else, which is where things go to
+ * not be noticed. A screen that dims in the middle of a piece is the one
+ * failure that ends a performance, so it says so where the settings are.
+ */
+function showScreenState() {
+  if (!state.doc || wakeState() === "held") {
+    el.screenState.hidden = true;
+    return;
+  }
+  el.screenState.hidden = false;
+  el.screenState.textContent =
+    wakeState() === "unsupported"
+      ? "This browser cannot keep the screen awake — turn off Auto-Lock in " +
+        "Settings › Display & Brightness before you play."
+      : "The screen is not being held awake and may dim. Tap the score once; " +
+        "if it stays like this, turn off Auto-Lock in Settings › Display & Brightness.";
+}
+
 function render() {
+  showScreenState();
   // No page counter over the score. The score has its own page numbers, and a
   // second one floating on top of the music is one more thing in the way of
   // the only thing anyone is looking at.
@@ -1640,6 +1715,7 @@ async function prefetchModel(onProgress) {
 
 async function showOfflineState() {
   const ready = await modelCached();
+  showScreenState();
   el.offlineState.textContent = ready
     ? "Ready offline — the score, the app and the face model are all on this device."
     : "Not ready offline yet — the face model has not been downloaded. " +
@@ -1893,6 +1969,19 @@ function collapseSetup(collapsed) {
 
 el.setupToggle.addEventListener("click", () => {
   collapseSetup(el.setupToggle.getAttribute("aria-expanded") === "true");
+});
+
+// Anywhere outside it closes it too.
+//
+// The header is the deliberate way and it is always on screen now, but a panel
+// covering half a score wants an escape that does not require finding a
+// particular ten pixels. Not while calibrating: the countdown lives in there,
+// and the gesture being measured would dismiss its own instructions.
+document.addEventListener("pointerdown", (e) => {
+  if (calibrating) return;
+  if (el.setupPanel.hidden || el.setupPanel.classList.contains("collapsed")) return;
+  if (el.setupPanel.contains(e.target)) return;
+  collapseSetup(true);
 });
 
 // Keyboard and pedal-style remotes both arrive as arrow keys.

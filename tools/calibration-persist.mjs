@@ -1,5 +1,6 @@
 import { chromium } from "playwright-core";
-const b = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
+import { executablePath } from "./browser.mjs";
+const b = await chromium.launch({ executablePath });
 const ctx = await b.newContext();
 const p = await ctx.newPage();
 const open = async () => {

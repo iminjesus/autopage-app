@@ -1,7 +1,8 @@
 import { chromium } from "playwright-core";
+import { executablePath } from "./browser.mjs";
 
 const b = await chromium.launch({
-  executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+  executablePath,
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
 });
 const p = await b.newPage({ viewport: { width: 1100, height: 800 } });

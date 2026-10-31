@@ -190,3 +190,47 @@ re-learning it: 10.2s to 2.7s. None of this was visible from reading the code,
 which is why `tools/offline.mjs` serves the app from a server it can tell to
 stop answering — mocking it in the browser would have intercepted the requests
 before the service worker ever saw them, which is the thing under test.
+
+## A panel anchored to the bottom can push its own handle off the top
+
+The settings panel grows upward from the bottom corner and had no ceiling. Fill
+it the way a session fills it — the gesture description, the controls, the
+twelve-line frame-by-frame dump of why the last page turned, the diagnostics —
+and it grows past the top of the screen, taking its header with it. The header
+is the only deliberate way to close it. Reported from an iPad as the panel
+covering half the score with nothing to tap.
+
+So it stops at the viewport and the body scrolls inside it, with the header
+pinned. And below the viewport, at 72% of it, because filling the screen makes
+"tap outside to close" an escape with nowhere to land — on a phone it reached
+632px of 664. This is a score reader; the settings are what gives way. Tapping
+outside closes it too, except while calibrating, where the countdown lives in
+the panel and the gesture being measured would dismiss its own instructions.
+
+Two things came out of fixing it. The screen wake lock was reported as `off` on
+an iPad with a score open: one request when the score opens is not enough,
+because the system takes the lock back on its own and does not give the handle
+back. It is now re-requested on a touch, on returning to the app, and on a timer
+while a score is open — and whether it is actually held is stated in words in
+the panel rather than only in the diagnostics line, which is where things go to
+not be noticed.
+
+And the saved page number was being cleared as soon as the write was *started*
+rather than when it landed. With the camera running that round trip can take
+over a second, so swiping the app away right after a turn lost it. The flush on
+the way out can now see a write still in flight.
+
+## Tests should not know the build number of the browser
+
+Every tool had the Chromium path written out down to `chromium-1194`. A new
+container ships a different build and the entire suite goes red at once, for a
+reason that has nothing to do with the app, on the day you most want to trust
+it. `tools/browser.mjs` works it out instead, and the optional QR decoder is now
+skipped with a note rather than failing when it is not installed.
+
+Worth knowing about Playwright: `waitForFunction` with an async predicate
+resolves on the Promise object, which is truthy, rather than awaiting it. A test
+that polled IndexedDB that way reported a write as finished while the database
+still said otherwise, and the failure landed three steps later where it looked
+like a restore bug. Polling from the test process, where `evaluate` does await,
+is the version that tells the truth.
