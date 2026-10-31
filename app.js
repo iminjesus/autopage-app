@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-10-31a panel-closes";
+const BUILD = "2026-10-31b update-button";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -52,7 +52,7 @@ for (const id of [
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "sampleBtn", "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
-  "offlineState", "offlineBtn", "screenState",
+  "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeInput", "gestureHelp", "setupStatus",
@@ -1966,6 +1966,30 @@ function collapseSetup(collapsed) {
   el.setupToggle.setAttribute("aria-expanded", String(!collapsed));
   el.setupPanel.classList.toggle("collapsed", collapsed);
 }
+
+/**
+ * Pick up a new version, from inside an app that has no address bar.
+ *
+ * Installed to the home screen there is no reload button and no way to ask for
+ * one — the only route was to force quit the app from the switcher, which is
+ * both obscure and the kind of thing people try once and give up on.
+ *
+ * A plain reload is nearly enough, because the worker fetches from the network
+ * first and only falls back to the cache. The part it misses is the worker
+ * script itself, which the browser re-checks on its own schedule rather than on
+ * demand, so that is asked for explicitly first.
+ */
+el.reloadBtn.addEventListener("click", async () => {
+  el.reloadBtn.disabled = true;
+  el.reloadBtn.textContent = "Checking…";
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+  } catch (err) {
+    console.warn("could not refresh the worker:", err.message);
+  }
+  location.reload();
+});
 
 el.setupToggle.addEventListener("click", () => {
   collapseSetup(el.setupToggle.getAttribute("aria-expanded") === "true");

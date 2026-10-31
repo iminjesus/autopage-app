@@ -101,6 +101,17 @@ press.
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.
 
+### Picking up a new version
+
+A home-screen app has no address bar, so it has no reload button and no way to
+ask for one — the only route is to force quit it from the app switcher, which is
+obscure enough that in practice a new version never arrives. **"Check for an
+update"** in the Setup panel does it from inside: it asks for a fresh service
+worker and reloads. The build string on the diagnostics line says which version
+is running, so there is something to compare against.
+
+The score and the page you were on survive it.
+
 ### Working with no signal
 
 A rehearsal room with no signal is a normal place to open a score, so this is a
