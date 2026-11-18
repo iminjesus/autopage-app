@@ -181,6 +181,38 @@ body {
   background: #fff;
 }
 
+.steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.steps .glyph {
+  display: inline-flex;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: var(--accent-strong);
+}
+
+/* Pointing at where the real button is: the top bar on an iPad, the bottom
+   bar on a phone. */
+.steps .arrow {
+  font-size: 18px;
+  color: var(--muted);
+}
+
+/* An anchor dressed as a block button needs the centring a button gets free. */
+a.btn-block {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
 .btn-quiet {
   background: transparent;
   color: var(--muted);

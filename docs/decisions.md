@@ -261,3 +261,30 @@ anyone could tell.
 Closed over a score, the panel is a gear and nothing else. A word floating on
 the music is one more thing between the player and the only thing they are
 looking at.
+
+## A scan cannot install anything, so the card does the explaining
+
+The wish was: scan a code, get an icon on the home screen, say nothing. On iOS
+that does not exist. No web page can add itself to the home screen — there is no
+API, `beforeinstallprompt` is Chrome's and Safari does not implement it, and a
+QR code only ever opens a URL. The two taps are Apple's, and the only honest
+options are to live with them or pay for the App Store.
+
+So the work went into never having to say them. `share.html` is a card: the code
+large, and beside it the two steps as a numbered picture with the actual Share
+glyph, on a light background because a QR on a dark screen scans worse and this
+is the one page meant for paper. It reads its own address from where it is
+served, so there is no URL to keep in step by hand.
+
+Inside the app the same offer moved off the arrival screen. It had been sitting
+there from the first moment, competing with Open PDF — homework handed to
+someone who does not yet know what this is, for a benefit (full screen, data
+that Safari will not clear) they have no reason to want yet. It now waits for
+the second visit, because coming back is the signal, and it lives permanently in
+the Setup panel as well, since a returning player opens straight into their
+score and never sees the first screen again.
+
+The steps are drawn rather than described, and for any touch browser without an
+install prompt rather than iOS alone: a paragraph about a button is worse than
+an arrow pointing at it, and the arrow knows that Safari puts Share in the top
+bar on an iPad and the bottom bar on a phone.

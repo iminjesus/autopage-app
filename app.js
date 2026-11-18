@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-18a plainer";
+const BUILD = "2026-11-18c share-card";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -53,6 +53,7 @@ for (const id of [
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "sampleBtn", "startCalibrateBtn", "startCalibrateState",
   "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
+  "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -1781,8 +1782,21 @@ window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   installPrompt = e;
   showInstallHint();
+  showPanelInstall();
 });
 
+/**
+ * Offer the home screen — but not as the first thing anyone sees.
+ *
+ * It was on the landing screen from the first moment, competing with Open PDF.
+ * Someone who has just scanned a code and does not yet know what this is was
+ * being handed homework before they had seen the thing work, and the app runs
+ * perfectly well from a tab, so the offer was never urgent enough to earn that
+ * spot. From the second visit it is: coming back is the signal.
+ *
+ * The laptop case is different and shows at once, because there the code is
+ * not a nag, it is the route to the device this is actually for.
+ */
 function showInstallHint() {
   if (isStandalone()) return; // already installed: nothing to offer
   try {
@@ -1791,36 +1805,79 @@ function showInstallHint() {
 
   const canShare = typeof navigator.share === "function";
   // Scanning a code on the screen you are already holding is not a route
-  // anywhere. On a laptop it is the shortest path to the iPad, which is the
-  // device this is actually for — so the offer is made on the strength of that,
-  // and the words follow the offer rather than the other way round.
+  // anywhere. On a laptop it is the shortest path to the iPad.
   const offerQr = !matchMedia("(pointer: coarse)").matches;
 
   if (installPrompt) {
-    el.installText.textContent =
-      "Install it and it opens full screen, with the score filling the display " +
-      "and nothing to find again later.";
+    el.installText.textContent = "Install it and it opens full screen.";
     el.installBtn.hidden = false;
-  } else if (isApple()) {
-    // Safari offers no prompt to hook, so the steps are the feature.
-    el.installText.innerHTML =
-      'Add this to your home screen and it opens full screen, with the score ' +
-      'filling the iPad. Tap <span class="share-glyph">Share</span> in Safari, ' +
-      'then <span class="share-glyph">Add to Home Screen</span>. The camera ' +
-      'works from there too.';
   } else if (offerQr) {
-    el.installText.textContent =
-      "This is meant for the tablet on your stand. Point its camera at the code " +
-      "to open it there, then add it to the home screen.";
+    el.installText.textContent = "Point your tablet's camera at this:";
   } else {
-    el.installText.textContent =
-      "Add this to your home screen from the browser menu and it opens full " +
-      "screen, with the score filling the display.";
+    // A touch device whose browser offers no install prompt — Safari always,
+    // and anything else that does not implement one. The two steps are then the
+    // entire mechanism, so they are drawn rather than described: a paragraph
+    // about a button is worse than an arrow pointing at it.
+    if (visits() < 2) return;
+    el.installText.textContent = "Keep it on your home screen:";
+    el.installSteps.hidden = false;
+    // Safari puts Share in the top bar on an iPad and the bottom bar on a
+    // phone, so the arrow has to know which one it is pointing at.
+    const phone = Math.min(screen.width, screen.height) < 500;
+    el.installArrow.textContent = isApple() && phone ? "↓" : "↑";
   }
 
   el.shareBtn.hidden = !canShare;
   el.installHint.hidden = false;
   if (offerQr) showQr();
+}
+
+/**
+ * The same offer, parked in the settings where it can be found on purpose.
+ *
+ * Once a score is remembered the app opens straight into it, so the card on the
+ * first screen stops being seen at all — which is precisely when someone has
+ * used it enough to want it installed.
+ */
+function showPanelInstall() {
+  if (isStandalone()) {
+    el.panelInstallBtn.hidden = true;
+    el.panelInstallHow.hidden = true;
+    return;
+  }
+  el.panelInstallBtn.hidden = false;
+}
+
+el.panelInstallBtn.addEventListener("click", async () => {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    el.panelInstallBtn.hidden = true;
+    return;
+  }
+  const phone = Math.min(screen.width, screen.height) < 500;
+  el.panelInstallHow.textContent = isApple()
+    ? `Share button (${phone ? "bottom" : "top"} bar) → Add to Home Screen`
+    : "Browser menu → Add to Home Screen";
+  el.panelInstallHow.hidden = false;
+});
+
+/** How many times this browser has opened the app, this one included. */
+const VISITS_KEY = "autopage.visits";
+
+function visits() {
+  try {
+    return Number(localStorage.getItem(VISITS_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function countVisit() {
+  try {
+    localStorage.setItem(VISITS_KEY, String(Math.min(visits() + 1, 99)));
+  } catch {}
 }
 
 async function showQr() {
@@ -2046,6 +2103,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+countVisit();
 loadCalibration();
 loadHold();
 showCalibrationState();
@@ -2060,7 +2118,7 @@ restoreLastScore().then(async (restored) => {
   if (restored || isStandalone() || (await modelCached())) beginWatching();
   showOfflineState();
 
-  if (!restored) showInstallHint();
+  showInstallHint();
   if (!restored && !("wakeLock" in navigator)) {
     showError(
       "This browser cannot keep the screen awake, so it will dim while you " +

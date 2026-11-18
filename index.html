@@ -54,6 +54,22 @@
         <div class="install" id="installHint" hidden>
           <p id="installText"></p>
           <div class="qr" id="qrBox" hidden></div>
+
+          <!-- Two steps as a picture. iOS has no install prompt to hook, so
+               this is the whole mechanism — and a paragraph describing a button
+               is worse than an arrow pointing at it. -->
+          <div class="steps" id="installSteps" hidden>
+            <span class="arrow" id="installArrow">↑</span>
+            <span class="glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+                   stroke="currentColor" stroke-width="1.7"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v12" /><path d="M8 7l4-4 4 4" />
+                <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+              </svg>
+            </span>
+            <span class="steps-text">then <b>Add to Home Screen</b></span>
+          </div>
           <div class="start-row">
             <button class="btn btn-secondary" id="installBtn" hidden>Install</button>
             <button class="btn btn-secondary" id="shareBtn" hidden>Share link</button>
@@ -116,6 +132,11 @@
 
         <div class="trainer-status warn" id="screenState" hidden></div>
 
+        <!-- Always findable, never a nag. A returning player lands straight on
+             their score, so the offer on the first screen never reaches them. -->
+        <button id="panelInstallBtn" class="btn btn-secondary btn-block" hidden>Add to Home Screen</button>
+        <div class="trainer-status" id="panelInstallHow" hidden></div>
+
         <button id="offlineBtn" class="btn btn-secondary btn-block" hidden>Save for offline (13 MB)</button>
         <div class="trainer-status" id="offlineState"></div>
 
@@ -126,6 +147,8 @@
         <!-- A home-screen app has no address bar and so no reload button. The
              only way to pick up a new version was to force quit it, which is
              not something anyone should have to know. -->
+        <a class="btn btn-secondary btn-block" href="./share.html" target="_blank" rel="noopener">Card to share</a>
+
         <button id="reloadBtn" class="btn btn-secondary btn-block">Check for update</button>
 
         <div class="diag" id="diag"></div>

@@ -101,6 +101,26 @@ press.
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.
 
+### Handing it to somebody
+
+`share.html` is a card with the code on it and the two steps drawn beside it —
+scan, then Share → Add to Home Screen. Print it, or hold up the screen. It reads
+the address from wherever it is served, so there is no URL to keep in step by
+hand, and "Card to share" in the Setup panel opens it.
+
+It exists because **iOS cannot do the thing you actually want**, which is for a
+scan to put an icon on the home screen. No web page can install itself there:
+there is no API, `beforeinstallprompt` is Chrome's and Safari does not implement
+it, and a QR code only opens a URL. The two steps are unavoidable, so the aim is
+that nobody has to be *told* them out loud.
+
+Inside the app the same offer waits for the second visit. Someone who has just
+scanned a code does not yet know what this is, the app runs perfectly well from
+a tab, and handing a stranger homework before they have seen it work costs more
+than the install is worth. Coming back is the signal. "Add to Home Screen" also
+sits in the Setup panel for good, since a returning player opens straight into
+their score and never sees the first screen again.
+
 ### Picking up a new version
 
 A home-screen app has no address bar, so it has no reload button and no way to

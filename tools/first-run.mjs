@@ -43,12 +43,23 @@ if (decoded !== null) {
   console.log(`${decoded === want ? "ok  " : "FAIL"} the code on the page scans to ${decoded}`);
 }
 
-// --- A tablet: no QR, and the Add to Home Screen steps instead ---
+// --- A tablet: nothing on arrival, the two steps on the way back ---
+//
+// Someone who has just scanned a code does not yet know what this is, and the
+// app runs perfectly well from a tab — so handing them homework before they
+// have seen it work costs more than the install is worth. Coming back earns it.
 const pad = await b.newContext({ viewport: { width: 834, height: 1194 }, hasTouch: true, isMobile: true });
 const t = await pad.newPage();
 await t.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+await t.waitForTimeout(800);
+console.log(`${(await t.isHidden("#installHint")) ? "ok  " : "FAIL"} first visit on a tablet: nothing asked of them`);
+
+await t.reload({ waitUntil: "networkidle" });
 await t.waitForSelector("#installHint:not([hidden])", { timeout: 5000 });
-console.log("ok   no QR on a touch device:", await t.isHidden("#qrBox"));
+const steps = await t.isVisible("#installSteps");
+const arrow = (await t.textContent("#installArrow")).trim();
+console.log(`${steps && arrow === "\u2191" ? "ok  " : "FAIL"} second visit: two steps, arrow ${arrow} at the iPad's top bar`);
+console.log("ok   still no QR on a touch device:", await t.isHidden("#qrBox"));
 
 // --- The sample score, which is the whole point of the landing screen ---
 await t.click("#sampleBtn");
@@ -75,6 +86,29 @@ await f.click("#installDismiss");
 await f.reload({ waitUntil: "networkidle" });
 await f.waitForTimeout(500);
 console.log(`${(await f.isHidden("#installHint")) ? "ok  " : "FAIL"} "Not now" is remembered`);
+
+// --- The card you hand to somebody, so nothing has to be said out loud ---
+const card = await b.newPage();
+await card.goto("http://localhost:8123/share.html", { waitUntil: "networkidle" });
+await card.waitForSelector("#qr svg", { timeout: 5000 });
+const cardSvg = await card.innerHTML("#qr");
+const cardMods = [...cardSvg.matchAll(/M(\d+) (\d+)h1v1h-1z/g)].map((m) => [+m[2], +m[1]]);
+const cardSpan = Number(cardSvg.match(/viewBox="0 0 (\d+)/)[1]);
+const cardGrid = Array.from({ length: cardSpan }, () => new Array(cardSpan).fill(0));
+for (const [r, c] of cardMods) cardGrid[r][c] = 1;
+let scanned = null;
+try {
+  scanned = execFileSync("python3", ["tools/qr-decode.py"], {
+    input: cardGrid.map((r) => r.join("")).join("\n"),
+    stdio: ["pipe", "pipe", "pipe"],
+  }).toString().trim().replace(/^'|'$/g, "");
+} catch {
+  console.log("skip the card's code: no decoder here");
+}
+if (scanned !== null) {
+  console.log(`${scanned === "http://localhost:8123/" ? "ok  " : "FAIL"} the card's code scans to ${scanned}`);
+}
+await card.close();
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();
