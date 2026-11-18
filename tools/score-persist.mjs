@@ -63,4 +63,34 @@ const mode = await t.evaluate(() => window.__autopage.mode);
 const lit = await t.isChecked("#modeTilt");
 console.log(`${mode === "tilt" && lit ? "ok  " : "FAIL"} the tilt is the default, and shown as the one that is on (mode:${mode}, lit:${lit})`);
 await touch.close();
+
+// What a stored preference does to that default.
+//
+// Worth pinning because the two are easy to confuse from the outside: a device
+// that has had the wink chosen on it opens on the wink, which looks exactly
+// like the default being wrong. A saved choice is meant to win — it is the
+// answer to "do I have to set this every time?" — so the only thing to get
+// right is that nothing else does.
+for (const [stored, want] of [
+  [null, "tilt"],     // nothing chosen yet
+  ["tilt", "tilt"],
+  ["wink", "wink"],   // a real choice, and it sticks
+  ["brow", "tilt"],   // what the tilt used to be called
+  ["nonsense", "tilt"],
+]) {
+  const ctx2 = await b.newContext({ viewport: { width: 834, height: 1194 }, hasTouch: true, isMobile: true });
+  const q = await ctx2.newPage();
+  await q.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+  if (stored !== null) {
+    await q.evaluate((s) => localStorage.setItem("autopage.gestureMode", s), stored);
+    await q.reload({ waitUntil: "networkidle" });
+  }
+  await q.waitForTimeout(300);
+  const got = await q.evaluate(() => window.__autopage.mode);
+  const shown = await q.isChecked(got === "wink" ? "#modeWink" : "#modeTilt");
+  console.log(
+    `${got === want && shown ? "ok  " : "FAIL"} stored ${String(stored).padEnd(9)} -> ${got.padEnd(5)} (wanted ${want}, shown as on: ${shown})`
+  );
+  await ctx2.close();
+}
 await b.close();

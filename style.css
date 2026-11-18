@@ -213,6 +213,12 @@ a.btn-block {
   text-decoration: none;
 }
 
+.field-check em {
+  font-style: normal;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
 /* Two choices, both visible, one of them on. */
 .segmented {
   display: flex;
