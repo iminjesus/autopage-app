@@ -22,7 +22,7 @@ console.log("help     :", (await p.textContent("#gestureHelp")).split("\n")[0].t
 // Clicked rather than checked: the control only unhides once a camera has
 // started, and this run has no camera at all.
 await p.evaluate(() => {
-  const box = document.getElementById("modeInput");
+  const box = document.getElementById("modeWink");
   box.checked = true;
   box.dispatchEvent(new Event("change"));
 });

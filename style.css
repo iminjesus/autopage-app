@@ -213,6 +213,52 @@ a.btn-block {
   text-decoration: none;
 }
 
+/* Two choices, both visible, one of them on. */
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 11px;
+}
+
+.segmented label {
+  flex: 1;
+  position: relative; /* the visually hidden radio is absolute inside it */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label:has(input:checked) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented em {
+  display: block;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
 .btn-quiet {
   background: transparent;
   color: var(--muted);

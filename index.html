@@ -120,10 +120,25 @@
           <input type="number" id="holdInput" min="100" max="1500" step="50" value="200" />
         </label>
 
-        <label class="field field-check" id="modeField" hidden>
-          <input type="checkbox" id="modeInput" />
-          <span>Head tilt instead of wink <em>— works with glasses</em></span>
-        </label>
+        <!-- Two named choices, not a checkbox. "Head tilt instead of wink"
+             reads as though wink were the normal state and the tilt an
+             override, which is backwards — and an unticked box always looks
+             like the default. -->
+        <div class="field" id="modeField" hidden>
+          <span>Gesture</span>
+          <div class="segmented" role="radiogroup" aria-label="Gesture">
+            <label>
+              <input type="radio" name="gesture" id="modeTilt" value="tilt" />
+              <span>Head tilt</span>
+              <em>any glasses</em>
+            </label>
+            <label>
+              <input type="radio" name="gesture" id="modeWink" value="wink" />
+              <span>Wink</span>
+              <em>no glasses</em>
+            </label>
+          </div>
+        </div>
 
         <label class="field field-check" id="swapField" hidden>
           <input type="checkbox" id="swapInput" />

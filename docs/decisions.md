@@ -288,3 +288,18 @@ The steps are drawn rather than described, and for any touch browser without an
 install prompt rather than iOS alone: a paragraph about a button is worse than
 an arrow pointing at it, and the arrow knows that Safari puts Share in the top
 bar on an iPad and the bottom bar on a phone.
+
+## A checkbox cannot say which one is the default
+
+"Head tilt instead of wink", ticked, was the tilt — and it read as though the
+wink were the normal state and the tilt an override you had switched on. An
+unticked box always looks like the default, and the grammar said so too.
+
+It is two named choices now, both visible, one of them lit: **Head tilt** (any
+glasses) and **Wink** (no glasses). Nothing is phrased as instead-of anything.
+
+The default is the tilt everywhere, not only on touch devices. The old rule gave
+laptops the wink on the reasoning that a close-up face reads well either way,
+which is true and beside the point: the app lives on a stand, the person setting
+it up on a laptop is setting it up for that stand, and the tilt is the one that
+survives glasses. The wink is a choice someone makes, not one they are handed.

@@ -60,7 +60,7 @@ await t.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
 // text is not the contract, and checking it made this fail on a rewrite that
 // changed nothing about the behaviour.
 const mode = await t.evaluate(() => window.__autopage.mode);
-const coarse = await t.evaluate(() => matchMedia("(pointer: coarse)").matches);
-console.log(`${mode === "tilt" ? "ok  " : "FAIL"} touch default   -> coarse:${coarse}  mode:${mode}`);
+const lit = await t.isChecked("#modeTilt");
+console.log(`${mode === "tilt" && lit ? "ok  " : "FAIL"} the tilt is the default, and shown as the one that is on (mode:${mode}, lit:${lit})`);
 await touch.close();
 await b.close();

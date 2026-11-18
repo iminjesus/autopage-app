@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-18c share-card";
+const BUILD = "2026-11-18d pick-a-gesture";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -57,7 +57,7 @@ for (const id of [
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
-  "modeField", "modeInput", "gestureHelp", "setupStatus",
+  "modeField", "modeTilt", "modeWink", "gestureHelp", "setupStatus",
 ]) el[id] = document.getElementById(id);
 
 /**
@@ -582,19 +582,15 @@ function loadHold() {
   // "brow" is what this used to be stored as, back when raising the eyebrows
   // was forward and the tilt was only back. The tilt carries both directions
   // now, so anyone already on that mode belongs here.
+  // The tilt is the default, everywhere. It is the one that works behind
+  // glasses, and on a stand at arm's length — which is where this lives — the
+  // eyelid measure is at its weakest while the angle between the eyes barely
+  // notices the distance. The wink is the choice you make, not the one you are
+  // given. ("brow" is what the tilt used to be stored as.)
   const storedMode = localStorage.getItem(MODE_KEY);
-  gestureMode = storedMode
-    ? storedMode === "tilt" || storedMode === "brow"
-      ? "tilt"
-      : "wink"
-    // Nothing chosen yet. On a tablet the default is the tilt: the app lives on
-    // a stand at arm's length, where the eyelid measure is weakest and the angle
-    // between the eyes is barely affected. On a laptop the face is close and
-    // either works, so the quieter gesture wins.
-    : matchMedia("(pointer: coarse)").matches
-    ? "tilt"
-    : "wink";
-  el.modeInput.checked = gestureMode === "tilt";
+  gestureMode = storedMode === "wink" ? "wink" : "tilt";
+  el.modeTilt.checked = gestureMode === "tilt";
+  el.modeWink.checked = gestureMode === "wink";
   describeGesture();
 }
 
@@ -1999,8 +1995,12 @@ el.startCalibrateBtn.addEventListener("click", async () => {
   startCalibration();
 });
 
-el.modeInput.addEventListener("change", () => {
-  gestureMode = el.modeInput.checked ? "tilt" : "wink";
+for (const input of [el.modeTilt, el.modeWink]) {
+  input.addEventListener("change", onModeChange);
+}
+
+function onModeChange() {
+  gestureMode = el.modeWink.checked ? "wink" : "tilt";
   try {
     localStorage.setItem(MODE_KEY, gestureMode);
   } catch {}
@@ -2011,7 +2011,7 @@ el.modeInput.addEventListener("change", () => {
     calibration?.mode === gestureMode
       ? "Calibrated for this gesture."
       : "Not calibrated for this gesture.";
-});
+}
 
 el.swapInput.addEventListener("change", () => {
   swapEyes = el.swapInput.checked;
@@ -2135,7 +2135,12 @@ window.__autopage = {
   get requiredVotes() { return requiredVotes(); },
   get holdWindow() { return holdWindow(); },
   processFrame,
-  setMode(mode) { gestureMode = mode === "tilt" ? "tilt" : "wink"; describeGesture(); },
+  setMode(mode) {
+    gestureMode = mode === "wink" ? "wink" : "tilt";
+    el.modeTilt.checked = gestureMode === "tilt";
+    el.modeWink.checked = gestureMode === "wink";
+    describeGesture();
+  },
   get mode() { return gestureMode; },
   get ready() { return landmarker !== null; },
   get threshold() { return asymThreshold(); },
