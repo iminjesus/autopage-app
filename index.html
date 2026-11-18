@@ -30,33 +30,33 @@
 
       <div class="score-empty" id="scoreEmpty">
         <h1 class="title">AutoPage</h1>
-        <p class="lede">
-          Turn the pages of a PDF score with a flick of your head, or a wink.
-          No pedal, no hardware. The camera never leaves this device.
-        </p>
+        <p class="lede">Turn pages with your head. No pedal.<br />The camera stays on this device.</p>
 
-        <!-- The sample comes first. Landing here with only a file picker means
-             going to find a PDF before you can see whether any of this works,
-             and most people do not come back from that trip. -->
         <div class="start-row">
-          <button class="file-btn" id="sampleBtn">Try it with a sample score</button>
-          <label class="file-btn file-btn-quiet">
-            Open your own PDF
+          <label class="file-btn">
+            Open PDF
             <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden />
           </label>
+          <button class="file-btn file-btn-quiet" id="startCalibrateBtn">Calibrate</button>
         </div>
+
+        <p class="start-note" id="startCalibrateState"></p>
+
+        <p class="start-note">
+          <button class="linkish" id="sampleBtn">try a sample score</button>
+        </p>
 
         <p class="score-error" id="scoreError" hidden></p>
 
         <!-- iOS has no install prompt of its own — nothing appears, ever, so
-             anyone who does not already know the Share menu trick simply uses
-             it in a tab and loses it. Saying the two steps is the whole fix. -->
+             anyone who does not already know the Share menu trick uses it in a
+             tab and loses it. The two steps are the whole fix. -->
         <div class="install" id="installHint" hidden>
           <p id="installText"></p>
           <div class="qr" id="qrBox" hidden></div>
           <div class="start-row">
             <button class="btn btn-secondary" id="installBtn" hidden>Install</button>
-            <button class="btn btn-secondary" id="shareBtn" hidden>Share the link</button>
+            <button class="btn btn-secondary" id="shareBtn" hidden>Share link</button>
             <button class="btn btn-quiet" id="installDismiss">Not now</button>
           </div>
         </div>
@@ -80,19 +80,20 @@
 
     <!-- ===== Setup panel ===== -->
     <section class="panel" id="setupPanel" hidden>
-      <button class="panel-head" id="setupToggle" aria-expanded="true">
-        <span>⚙️ Setup</span>
-        <span class="chevron">▾</span>
+      <!-- Closed over a score this is a gear and nothing else. A word floating
+           on the music is one more thing between the player and the only thing
+           they are looking at. -->
+      <button class="panel-head" id="setupToggle" aria-expanded="true" aria-label="Setup">
+        <span class="gear" aria-hidden="true">⚙️</span>
+        <span class="panel-label">Setup</span>
+        <span class="chevron" aria-hidden="true">▾</span>
       </button>
 
       <div class="panel-body">
         <p class="panel-desc" id="gestureHelp"></p>
-        <p class="panel-desc panel-desc-quiet">
-          The camera runs locally and nothing leaves this device.
-        </p>
 
         <label class="btn btn-secondary btn-block file-swap">
-          Open another score
+          Open PDF
           <input type="file" id="swapFileInput" accept="application/pdf,.pdf" hidden />
         </label>
 
@@ -105,13 +106,12 @@
 
         <label class="field field-check" id="modeField" hidden>
           <input type="checkbox" id="modeInput" />
-          <span>Turn with a head tilt instead of a wink — the one that works
-            behind glasses, where a lens rim sits across the eyelid.</span>
+          <span>Head tilt instead of wink <em>— works with glasses</em></span>
         </label>
 
         <label class="field field-check" id="swapField" hidden>
           <input type="checkbox" id="swapInput" />
-          <span>Swap sides — if the wrong side turns forward</span>
+          <span>Swap sides</span>
         </label>
 
         <div class="trainer-status warn" id="screenState" hidden></div>
@@ -121,12 +121,12 @@
 
         <div class="trainer-status" id="calibStatus"></div>
         <div class="diag" id="gestureAsym"></div>
-        <div class="trainer-status" id="setupStatus">Open a score to begin.</div>
+        <div class="trainer-status" id="setupStatus">No score open.</div>
 
         <!-- A home-screen app has no address bar and so no reload button. The
              only way to pick up a new version was to force quit it, which is
              not something anyone should have to know. -->
-        <button id="reloadBtn" class="btn btn-secondary btn-block">Check for an update</button>
+        <button id="reloadBtn" class="btn btn-secondary btn-block">Check for update</button>
 
         <div class="diag" id="diag"></div>
       </div>

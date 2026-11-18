@@ -115,6 +115,29 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.start-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* A button that reads as a link: the sample is a way in, not a third choice
+   competing with the two that matter. */
+.linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.linkish:hover {
+  color: var(--text);
+}
+
 .start-row {
   display: flex;
   flex-wrap: wrap;
@@ -242,6 +265,7 @@ body {
   width: 100%;
   flex: 0 0 auto; /* never squeezed, never scrolled away */
   display: flex;
+  gap: 0;
   justify-content: space-between;
   align-items: center;
   background: transparent;
@@ -439,12 +463,33 @@ body {
 
 /* Collapsed, the panel is a title bar and nothing else — the score is what the
    player is looking at, and everything here is only wanted occasionally. */
+/* Closed, it is a gear: no label, no chevron, no box worth noticing. */
 .panel.collapsed {
   width: auto;
+  background: rgba(23, 26, 33, 0.55);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+  border-radius: 999px;
 }
 
 .panel.collapsed .panel-head {
-  padding: 10px 14px;
+  padding: 9px 11px;
+  opacity: 0.55;
+}
+
+.panel.collapsed .panel-label,
+.panel.collapsed .chevron {
+  display: none;
+}
+
+.gear {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.panel-label {
+  margin-right: auto;
+  margin-left: 8px;
 }
 
 .gesture {

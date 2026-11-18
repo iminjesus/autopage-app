@@ -73,6 +73,14 @@ for (const [label, viewport] of [
   check(await p.locator("#setupPanel").evaluate((n) => n.classList.contains("collapsed")),
     `${label}: tapping outside closes it`);
 
+  const shown = await p.evaluate(() => ({
+    gear: !!document.querySelector(".gear")?.offsetParent,
+    label: !!document.querySelector(".panel-label")?.offsetParent,
+    chevron: !!document.querySelector(".chevron")?.offsetParent,
+  }));
+  check(shown.gear && !shown.label && !shown.chevron,
+    `${label}: closed over a score it is a gear only (${JSON.stringify(shown)})`);
+
   await ctx.close();
 }
 

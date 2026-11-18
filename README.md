@@ -92,11 +92,11 @@ press.
    with no wifi on it is fine. The app says this itself on a first visit, with
    the two steps written out, because Safari offers no install prompt of its own
    and nothing otherwise appears.
-3. **Press "Try it with a sample score".** A four-page minuet is bundled, so
-   there is nothing to find before you can see whether the gesture works on your
-   face. Your own PDF opens from the same screen, or from "Open another score"
-   in the Setup panel later. Whichever is open is stored and reopens on the page
-   it was left on.
+3. **Open a PDF, or press "try a sample score".** A four-page minuet is bundled,
+   so there is nothing to find before you can see whether the gesture works on
+   your face. Whichever is open is stored and reopens on the page it was left
+   on. **Calibrate** is on the same screen, with a line under it saying whether
+   one is already saved — it is kept on the device and only needs doing once.
 
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.

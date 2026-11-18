@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-10-31b update-button";
+const BUILD = "2026-11-18a plainer";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -51,7 +51,8 @@ for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
-  "sampleBtn", "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
+  "sampleBtn", "startCalibrateBtn", "startCalibrateState",
+  "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -549,19 +550,24 @@ function showCalibrationState() {
   const target = el.calibStatus;
   if (calibration) {
     target.textContent =
-      `Calibrated ${calibration.savedAt ?? "earlier"}, saved in this browser ` +
-      `(separation x${(calibration.separation ?? 0).toFixed(1)}, threshold ` +
-      `${(calibration.threshold ?? 0).toFixed(2)}). Recalibrate any time to replace it.`;
+      `Calibrated ${calibration.savedAt ?? "earlier"} · x${(calibration.separation ?? 0).toFixed(1)} separation`;
   } else if (staleCalibration) {
-    target.textContent =
-      "A saved calibration was discarded — it was measured the old way, before " +
-      "the switch to eyelid geometry, so its numbers mean nothing now. " +
-      "Calibrate once more and it will stick.";
+    target.textContent = "Old calibration discarded. Calibrate again.";
   } else {
-    target.textContent =
-      "Not calibrated — running on defaults. Press Calibrate at the top of the " +
-      "screen if winks are missed. It is stored here and only needs doing once.";
+    target.textContent = "Not calibrated — using defaults.";
   }
+
+  // And on the first screen, next to the button, in four words.
+  //
+  // A calibration is kept and survives reloads, but that was only visible by
+  // opening the settings — so the honest answer to "do I have to do this every
+  // time?" was yes as far as anyone could tell. Put beside the button it
+  // answers itself.
+  el.startCalibrateState.textContent = calibration
+    ? `Calibrated ${calibration.savedAt ?? "earlier"} — kept on this device`
+    : staleCalibration
+    ? "Old calibration discarded"
+    : "Not calibrated yet — optional";
 }
 
 function loadHold() {
@@ -1063,7 +1069,6 @@ function decide(direction, shaking) {
     // Say what the numbers were, every time, so a wrong turn explains itself
     // without anyone having to catch it happening.
     lastWinkReport = traceReport(`${gesture} ${direction > 0 ? "forward" : "back"}`);
-    el.calibStatus.textContent = lastWinkReport;
     if (direction > 0) nextPage();
     else prevPage();
   }
@@ -1077,14 +1082,14 @@ function decide(direction, shaking) {
 // to measure it on their face and show them the number.
 
 const WINK_PHASES = [
-  { key: "noise", seconds: 6, prompt: "Look at the camera and blink normally." },
-  { key: "right", seconds: 6, prompt: "Wink your RIGHT eye and hold. Repeat a few times." },
-  { key: "left", seconds: 6, prompt: "Wink your LEFT eye and hold. Repeat a few times." },
+  { key: "noise", seconds: 6, prompt: "Blink normally." },
+  { key: "right", seconds: 6, prompt: "Wink your RIGHT eye. Repeat." },
+  { key: "left", seconds: 6, prompt: "Wink your LEFT eye. Repeat." },
 ];
 const TILT_PHASES = [
-  { key: "noise", seconds: 6, prompt: "Look at the camera, head level. Sway a little, as you would playing." },
-  { key: "right", seconds: 6, prompt: "Flick your head to your RIGHT and hold a moment. It does not have to go far. Repeat a few times." },
-  { key: "left", seconds: 6, prompt: "Flick your head to your LEFT and hold a moment. Repeat a few times." },
+  { key: "noise", seconds: 6, prompt: "Head level. Sway as you would playing." },
+  { key: "right", seconds: 6, prompt: "Flick your head RIGHT. Repeat." },
+  { key: "left", seconds: 6, prompt: "Flick your head LEFT. Repeat." },
 ];
 const phases = () => (gestureMode === "tilt" ? TILT_PHASES : WINK_PHASES);
 
@@ -1101,20 +1106,14 @@ function describeGesture() {
 
   if (gestureMode === "tilt") {
     el.gestureHelp.textContent =
-      "Forward — flick your head to your right and hold a moment.\n" +
-      "Back — flick it to your left.\n" +
-      `About ${deg(tiltLimit())}° is enough — a small movement, done briskly. What ` +
-      "counts is that it arrives quickly, not that it goes far, so there is no " +
-      "reason to strain. Leaning into a phrase drifts over too slowly to " +
-      "register, straightening up again never counts, and nodding with the beat " +
-      "tips the head on a different axis the measure cannot see.";
+      `Right ${deg(tiltLimit())}° → forward\n` +
+      `Left ${deg(tiltLimit())}° → back\n` +
+      "Flick it. A slow lean does not count.";
   } else {
     el.gestureHelp.textContent =
-      "Forward — wink your right eye and hold.\n" +
-      "Back — wink your left eye and hold.\n" +
-      "A blink closes both eyes at once, so it is ignored; so is any frame " +
-      "where your head is turned away or moving quickly. The head does not " +
-      "turn pages in this mode.";
+      "Wink right eye → forward\n" +
+      "Wink left eye → back\n" +
+      "Blinks are ignored.";
   }
 
   el.holdLabel.textContent = gestureMode === "tilt" ? "Hold length (ms)" : "Wink length (ms)";
@@ -1246,10 +1245,8 @@ function finishCalibration() {
   const closedPeak = Math.max(eyePeaks.right, eyePeaks.left);
   if (closedPeak < 0.35) {
     setCardMessage(
-      `The eyes never came apart — peak difference ${closedPeak.toFixed(2)}, expected above 0.6.\n` +
-      "The face model is not seeing the wink at all, so no threshold will help. " +
-      "More light on your face, or moving closer to the camera, is what to try. " +
-      "Nothing was saved."
+      `Not saved — the wink did not register (${closedPeak.toFixed(2)}, needs 0.6).\n` +
+      "More light, or move closer."
     );
     return;
   }
@@ -1286,20 +1283,16 @@ function finishCalibration() {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}
 
+  // Three words, then the numbers. The verdict is what someone needs in the
+  // two seconds after calibrating; the levels behind it belong in the panel,
+  // for the day something is wrong and they have to be asked for.
   const verdict =
-    separation >= 2.5
-      ? "Good separation — winks are clearly distinct from blinks."
-      : separation >= 1.5
-      ? "Marginal. It will work but expect the occasional miss; better light or a closer camera helps."
-      : "Not reliable on this face and setup. Use the pedal, the tap zones, or an arrow key instead — " +
-        "the app will not pretend otherwise.";
+    separation >= 2.5 ? "Good." : separation >= 1.5 ? "Will work, expect the odd miss." : "Unreliable — use the tap zones.";
 
-  setCardMessage(
-    `forward: wink ${forward.level.toFixed(2)} gap ${forward.gapPeak.toFixed(3)} ` +
-      `→ ${forward.threshold.toFixed(2)}/${forward.gate.toFixed(3)}\n` +
-      `back:    wink ${back.level.toFixed(2)} gap ${back.gapPeak.toFixed(3)} ` +
-      `→ ${back.threshold.toFixed(2)}/${back.gate.toFixed(3)}\n${verdict}`
-  );
+  setCardMessage(`Calibrated. ${verdict}`);
+  el.calibStatus.textContent =
+    `forward ${forward.level.toFixed(2)}/${forward.threshold.toFixed(2)}  ` +
+    `back ${back.level.toFixed(2)}/${back.threshold.toFixed(2)}  x${separation.toFixed(1)}`;
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000); // then get off the score
 }
@@ -1335,9 +1328,8 @@ function finishTiltCalibration(noise, right, left) {
   // session turning pages on posture.
   if (level < 0.15) {
     setCardMessage(
-      `The tilt was too small — ${deg(level)}° at its strongest, and swaying alone ` +
-        `reaches ${deg(noiseLevel)}°.\nTilt further, closer to laying an ear towards ` +
-        "your shoulder, and calibrate again. Nothing was saved."
+      `Not saved — tilt was only ${deg(level)}°, swaying reaches ${deg(noiseLevel)}°.\n` +
+        "Tilt further and try again."
     );
     return;
   }
@@ -1362,15 +1354,11 @@ function finishTiltCalibration(noise, right, left) {
     localStorage.setItem(CALIBRATION_KEY, JSON.stringify(calibration));
   } catch {}
 
-  const verdict =
-    separation >= 2.5
-      ? "Good separation — a deliberate tilt is well clear of the way you sway."
-      : "Marginal. It will work, but tilt further than feels necessary and expect the odd miss.";
+  const verdict = separation >= 2.5 ? "Good." : "Will work, expect the odd miss.";
 
-  setCardMessage(
-    `right: ${deg(rightLevel)}°   left: ${deg(leftLevel)}°   swaying: ${deg(noiseLevel)}°\n` +
-      `A tilt past ${deg(limit)}° turns the page.\n${verdict}`
-  );
+  setCardMessage(`Calibrated — ${deg(limit)}° turns the page. ${verdict}`);
+  el.calibStatus.textContent =
+    `right ${deg(rightLevel)}°  left ${deg(leftLevel)}°  sway ${deg(noiseLevel)}°  → ${deg(limit)}°`;
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000);
   describeGesture(); // the help text quotes the limit, which just changed
@@ -1572,6 +1560,7 @@ const nextPage = () => turnTo(state.page + 1);
 const prevPage = () => turnTo(state.page - 1);
 
 function renderDiag() {
+  const escape = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   el.diag.innerHTML = [
     `page ${state.page}/${state.pageCount || "?"}   camera ${landmarker ? "on" : "off"}` +
       `   screen ${wakeState()}   build ${BUILD}`,
@@ -1582,7 +1571,13 @@ function renderDiag() {
           .map((t) => `${t.from}\u2192${t.to} <b>${t.by}</b> ${t.at}`)
           .join("   ")
       : "turns: none yet",
-  ].join("\n");
+    // Why the last gesture-driven turn happened, frame by frame. It used to sit
+    // in the status line above the controls, where it was the longest thing in
+    // the panel by far and the first thing anyone read.
+    lastWinkReport ? escape(lastWinkReport) : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function setStatus(text) {
@@ -1609,10 +1604,8 @@ function showScreenState() {
   el.screenState.hidden = false;
   el.screenState.textContent =
     wakeState() === "unsupported"
-      ? "This browser cannot keep the screen awake — turn off Auto-Lock in " +
-        "Settings › Display & Brightness before you play."
-      : "The screen is not being held awake and may dim. Tap the score once; " +
-        "if it stays like this, turn off Auto-Lock in Settings › Display & Brightness.";
+      ? "Screen may dim — turn off Auto-Lock in Settings."
+      : "Screen may dim. Tap the score once.";
 }
 
 function render() {
@@ -1717,9 +1710,8 @@ async function showOfflineState() {
   const ready = await modelCached();
   showScreenState();
   el.offlineState.textContent = ready
-    ? "Ready offline — the score, the app and the face model are all on this device."
-    : "Not ready offline yet — the face model has not been downloaded. " +
-      "Open a score, or press the button above, while you still have a connection.";
+    ? "Ready offline."
+    : "Not saved for offline yet.";
   el.offlineBtn.hidden = ready;
 }
 
@@ -1755,7 +1747,7 @@ async function loadSample() {
     await rememberScore(bytes, "sample — Menuet in G", 1);
     await openScore(bytes, "sample — Menuet in G", 1);
   } catch (err) {
-    showError(`Could not load the sample — ${err.message}. Open your own PDF instead.`);
+    showError(`Could not load the sample — ${err.message}`);
   } finally {
     el.sampleBtn.disabled = false;
     el.sampleBtn.textContent = "Try it with a sample score";
@@ -1921,10 +1913,7 @@ async function beginWatching() {
     showOfflineState();
   } catch (err) {
     el.allowBtn.hidden = false;
-    setCardMessage(
-      `Camera unavailable — ${err.message}. Pages still turn with the arrow ` +
-        "keys, a pedal, or by tapping the sides of the score."
-    );
+    setCardMessage(`No camera — ${err.message}.\nTap the sides of the score to turn pages.`);
   }
   render();
 }
@@ -1932,6 +1921,26 @@ async function beginWatching() {
 el.allowBtn.addEventListener("click", beginWatching);
 
 el.calibrateBtn.addEventListener("click", startCalibration);
+
+/**
+ * Calibrate before there is a score, from the first screen.
+ *
+ * It belongs there: it is the thing to do once, before playing, and burying it
+ * in a settings panel behind a score made it something you only find after the
+ * gesture has already let you down. The camera is deferred until a score opens
+ * now, so this has to start it first.
+ */
+el.startCalibrateBtn.addEventListener("click", async () => {
+  if (!landmarker) {
+    el.startCalibrateBtn.disabled = true;
+    el.startCalibrateBtn.textContent = "Starting camera…";
+    await beginWatching();
+    el.startCalibrateBtn.disabled = false;
+    el.startCalibrateBtn.textContent = "Calibrate";
+    if (!landmarker) return; // beginWatching has already said why
+  }
+  startCalibration();
+});
 
 el.modeInput.addEventListener("change", () => {
   gestureMode = el.modeInput.checked ? "tilt" : "wink";
@@ -1944,7 +1953,7 @@ el.modeInput.addEventListener("change", () => {
   el.calibStatus.textContent =
     calibration?.mode === gestureMode
       ? "Calibrated for this gesture."
-      : "Not calibrated for this gesture — press Calibrate.";
+      : "Not calibrated for this gesture.";
 });
 
 el.swapInput.addEventListener("change", () => {

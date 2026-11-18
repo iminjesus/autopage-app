@@ -234,3 +234,30 @@ that polled IndexedDB that way reported a write as finished while the database
 still said otherwise, and the failure landed three steps later where it looked
 like a restore bug. Polling from the test process, where `evaluate` does await,
 is the version that tells the truth.
+
+## Fewer words on the screen than in the head
+
+The interface had grown into an explanation of itself. The panel opened with a
+five-line paragraph about what a tilt is and why it works, the calibration
+result printed four thresholds and a sentence of interpretation, and the longest
+thing in there was a twelve-line frame-by-frame dump of why the last page turned
+— sitting above the controls, where it was the first thing anyone read.
+
+All of that was true and most of it was written while debugging something. The
+reasoning belongs here, in the repository; the screen gets the conclusion. The
+tilt is now `Right 12° → forward · Left 12° → back · Flick it. A slow lean does
+not count.` Calibration says `Calibrated. Good.` and puts its numbers in the
+panel for the day they are needed. The frame dump moved down with the
+diagnostics.
+
+Two things moved rather than shrank. **Calibrate is on the first screen**, next
+to Open PDF: it is the thing to do once before playing, and behind a settings
+panel behind a score it was something you found only after the gesture had
+already let you down. And beside it, in four words, whether one is already
+saved — it always persisted, but that was visible only by opening the settings,
+so the honest answer to "do I have to do this every time?" was yes as far as
+anyone could tell.
+
+Closed over a score, the panel is a gear and nothing else. A word floating on
+the music is one more thing between the player and the only thing they are
+looking at.
