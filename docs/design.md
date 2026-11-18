@@ -377,6 +377,48 @@ it was measured on: the panel says so rather than applying wink numbers to
 angles. Both gestures are described in the panel, in the mode they belong to —
 a gesture nobody has been told about reads as the app misfiring.
 
+### a low music stand, and why both gates are measured
+
+A guitarist's score sits well below their face. The iPad looks up at them, they
+look down at it, and both pitch the face away from the lens — which in the image
+reads as the face squashed vertically, by roughly the cosine of the angle
+between them. The two measures do not pay the same price for that, and the
+difference is not a matter of opinion: `tools/low-camera.mjs` sweeps it.
+
+A **lid gap** is a vertical distance, so it shrinks directly. But the wink is
+built from ratios — one eye's gap against the other's, and the difference over
+the face's own height — and both numerator and denominator shrink together, so
+the measure comes out unchanged. Squashed to half, the simulated wink still
+turns the page. (The simulation says nothing about whether the model can still
+*see* the lid from underneath, which is a separate question it cannot answer.)
+
+A **roll** is an angle, and compression flattens it: `tan(seen) = squash ×
+tan(real)`. That one is real, and it was being paid in the neck. Uncalibrated,
+a flick that needs 14° head-on needs 18° at a typical guitar angle and 25° at a
+steep one.
+
+Calibration should absorb all of that, because it measures through the camera
+that is actually there — and it did not, because the floors were constants. The
+angle floor was twelve degrees and the onset requirement was a fixed 8°/300ms;
+below about 0.8 squash one or other of them, not the sway they were meant to
+clear, was the gate doing the blocking. Both now come from the measurement:
+the angle from the sway seen through that camera, the rate from the onset the
+player actually performed, each with only a small absolute sanity guard left.
+A 14° flick now works at every angle swept, down to half:
+
+```
+                     uncalibrated   calibrated
+  head-on   (1.00)        14°           10°
+  moderate  (0.70)        18°           14°
+  steep     (0.50)        25°           14°
+```
+
+Lowering a gate is only safe if what it rejects shrinks with it, and here it
+does: leaning and swaying are seen through the same camera and flattened by the
+same factor, so the ratio between a flick and a lean survives. That is the
+argument; the tool also checks it, and at both angles a 14° lean, a 20° lean, a
+25° expressive lean, straightening up, and sway at ±6° all still turn nothing.
+
 ### calibration — the part that is not optional
 
 Thresholds cannot be constants. What a wink looks like through one person's

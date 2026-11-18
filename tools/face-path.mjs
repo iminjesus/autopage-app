@@ -1,5 +1,6 @@
 import { chromium } from "playwright-core";
 import { executablePath } from "./browser.mjs";
+import { simulate } from "./face-sim.mjs";
 const b = await chromium.launch({ executablePath });
 const p = await b.newPage();
 const errs = [];
@@ -9,81 +10,7 @@ await p.setInputFiles("#fileInput", "/workspace/autopage-app/fixtures/menuet-in-
 await p.waitForFunction(() => window.__autopage.state.measures.size === 4);
 
 const run = (label, opts) =>
-  p.evaluate(({ label, gapL: gL, gapR: gR, frames, yaw, hz, brow = 0, path = [], mode = "wink" }) => {
-    let gapL = gL, gapR = gR;
-    // The head's angle over time, as legs of [target radians, seconds] starting
-    // from level. A step change was what the old cases used, and a head cannot
-    // step — which mattered the moment the angle came down far enough that only
-    // the speed of the movement separates a command from a lean. Every tilt
-    // case below now travels the way a neck travels.
-    const legs = path.map(([to, secs]) => [to, Math.max(1, Math.round(secs * 30))]);
-    const rollAt = (t) => {
-      let start = 0, from = 0;
-      for (const [to, n] of legs) {
-        if (t < start + n) return from + (to - from) * ((t - start + 1) / n);
-        start += n;
-        from = to;
-      }
-      return from;
-    };
-    window.__autopage.setMode(mode);
-    const A = window.__autopage;
-    const before = A.state.page;
-    // A face, made of the eleven points the app actually reads.
-    const face = (t, neutral = false) => {
-      const turn = hz ? yaw * Math.sin(2 * Math.PI * hz * t / 30) : (yaw || 0);
-      const roll = neutral ? 0 : rollAt(t);
-      // roll is in radians: the eye line rotates, everything else follows.
-      const half = 0.06, cx = 0.5 + turn * 0.05, cy = 0.32;
-      const L = { x: cx + half * Math.cos(roll), y: cy + half * Math.sin(roll) };
-      const R = { x: cx - half * Math.cos(roll), y: cy - half * Math.sin(roll) };
-      const pt = (x, y) => ({ x, y, z: 0 });
-      const m = [];
-      m[10] = pt(0.5, 0.20);            // forehead
-      m[152] = pt(0.5, 0.50);           // chin  -> face height 0.30
-      m[1] = pt(0.5 + turn * 0.06, 0.36); // nose
-      m[386] = pt(L.x, L.y - gapL / 2);
-      m[374] = pt(L.x, L.y + gapL / 2);
-      m[362] = pt(L.x - 0.02, L.y);
-      m[263] = pt(L.x + 0.02, L.y);
-      m[159] = pt(R.x, R.y - gapR / 2);
-      m[145] = pt(R.x, R.y + gapR / 2);
-      m[133] = pt(R.x + 0.02, R.y);
-      m[33] = pt(R.x - 0.02 * Math.cos(roll), R.y - 0.02 * Math.sin(roll));
-      m[263] = pt(L.x + 0.02 * Math.cos(roll), L.y + 0.02 * Math.sin(roll));
-      return m;
-    };
-    const shapes = [
-      { categoryName: "eyeBlinkLeft", score: 0 },
-      { categoryName: "eyeBlinkRight", score: 0 },
-      { categoryName: "browInnerUp", score: brow > 0 ? brow : 0 },
-      { categoryName: "browDownLeft", score: brow < 0 ? -brow : 0 },
-      { categoryName: "browDownRight", score: brow < 0 ? -brow : 0 },
-    ];
-    // A neutral face first: a gesture only counts once it has been released
-    // since the last one, so a test that runs them back to back blocks itself.
-    const neutralShapes = [
-      { categoryName: "eyeBlinkLeft", score: 0 },
-      { categoryName: "eyeBlinkRight", score: 0 },
-      { categoryName: "browInnerUp", score: 0 },
-      { categoryName: "browDownLeft", score: 0 },
-      { categoryName: "browDownRight", score: 0 },
-    ];
-    // Neutral means neutral in every channel — lids open, brows still, head
-    // level. Leaving any of them set holds the previous gesture down and the
-    // next one never counts as released.
-    const openFace = (t) => {
-      const save = [gapL, gapR];
-      gapL = gapR = 0.015;
-      const f = face(t, true);
-      [gapL, gapR] = save;
-      return f;
-    };
-    const total = legs.length ? legs.reduce((n, [, f]) => n + f, 0) : frames;
-    for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
-    for (let t = 0; t < total; t++) A.processFrame(face(t), shapes);
-    return { label, from: before, to: A.state.page, turned: A.state.page !== before };
-  }, { label, ...opts });
+  p.evaluate(simulate, opts).then((r) => ({ label, ...r }));
 
 const open = 0.015, shut = 0.001;
 const cases = [

@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-18e swap-label";
+const BUILD = "2026-11-18f low-stand";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -737,6 +737,12 @@ function tiltSign() {
   return (measured ?? DEFAULT_TILT_SIGN) * (swapEyes ? -1 : 1);
 }
 
+/** How fast it has to arrive. Measured if it has been. */
+function tiltRate() {
+  if (calibration?.mode === "tilt") return calibration.tilt?.rate ?? ROLL_RATE;
+  return ROLL_RATE;
+}
+
 function tiltDirection(roll) {
   if (Math.abs(roll) <= tiltLimit()) return 0;
   // The onset is remembered rather than demanded of this frame — see the note
@@ -839,7 +845,7 @@ function headRoll(landmarks) {
   // too, and it sweeps back down through every angle it came up through — which
   // is how "I looked back and the page had turned" happens. Only movement that
   // deepens a tilt starts one.
-  if (rollRate > ROLL_RATE && delta * roll > 0) {
+  if (rollRate > tiltRate() && delta * roll > 0) {
     onsetAge = 0;
     onsetSign = Math.sign(roll);
   }
@@ -966,6 +972,11 @@ function processFrame(landmarks, shapes) {
     // signed roll is what gets recorded, not its size.
     if (gestureMode === "tilt") {
       const roll = headRoll(landmarks);
+      // How fast the head moved, as well as how far. Both gates are measured
+      // through the same camera at the same angle, so both have to be learned
+      // from it — see finishTiltCalibration.
+      const phase = phases()[calibrating.index].key;
+      (calibrating.rates[phase] ??= []).push(rollRate);
       return sampleCalibration(roll, Math.abs(roll), 1);
     }
     return sampleCalibration(asym, Math.abs(asym), absDiff);
@@ -1008,7 +1019,7 @@ function processFrame(landmarks, shapes) {
       `tilt  roll ${deg(roll)} (${towards})  moving ${((rollRate * 180) / Math.PI).toFixed(0)}°/0.3s` +
       `  ${gestureHold}/${requiredVotes()}f${unstable ? "  TURNED AWAY" : ""}\n` +
       `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°, flicked there faster than ` +
-      `${((ROLL_RATE * 180) / Math.PI).toFixed(0)}°/0.3s  —  ` +
+      `${((tiltRate() * 180) / Math.PI).toFixed(0)}°/0.3s  —  ` +
       `${onsetAge > ONSET_FRAMES ? "no flick yet" : `flicked ${onsetAge}f ago`}`;
     return decide(unstable ? 0 : tiltDirection(roll), unstable);
   }
@@ -1144,6 +1155,7 @@ function startCalibration() {
   calibrating = {
     index: 0,
     samples: { noise: [], right: [], left: [] },
+    rates: { noise: [], right: [], left: [] },
     eyePeaks: { right: 0, left: 0 },
     gapPeaks: { right: 0, left: 0 },
     until: 0,
@@ -1203,6 +1215,7 @@ function sampleCalibration(asym, closedEye, absDiff) {
 
 function finishCalibration() {
   const { noise, right, left } = calibrating.samples;
+  const rates = calibrating.rates;
   const eyePeaks = calibrating.eyePeaks;
   const gapPeaks = calibrating.gapPeaks;
   const mode = gestureMode;
@@ -1213,7 +1226,7 @@ function finishCalibration() {
 
   // A tilt is an angle, not a pair of eyelids. None of what follows applies to
   // it, so it does not run through any of it.
-  if (mode === "tilt") return finishTiltCalibration(noise, right, left);
+  if (mode === "tilt") return finishTiltCalibration(noise, right, left, rates);
 
   // Blinks are symmetric, so their asymmetry is the noise this has to clear.
   const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
@@ -1304,7 +1317,7 @@ function finishCalibration() {
  * preview, a front camera and a rear one give three chances to get it
  * backwards, and getting it backwards swaps forward and back.
  */
-function finishTiltCalibration(noise, right, left) {
+function finishTiltCalibration(noise, right, left, rates) {
   // Swaying at the keyboard is what a tilt has to clear, so the level phase is
   // deliberately not "hold still" — it is "sway as you would playing".
   const noiseLevel = Math.max(percentile(noise.map(Math.abs), 0.95), 0.03);
@@ -1335,13 +1348,34 @@ function finishTiltCalibration(noise, right, left) {
   // scaled from it. Calibrating with a big demonstrative tilt should not be a
   // way to sentence yourself to big tilts forever — this can lower the bar, and
   // the only thing that raises it is sway that would otherwise trip it.
-  const limit = Math.min(0.3, Math.max(0.12, noiseLevel * 2, level * 0.4));
+  //
+  // The absolute floor is a sanity guard and nothing more. It used to be 12
+  // degrees, which quietly undid the measurement for anyone whose camera sees
+  // them at an angle: a low music stand flattens every angle it sees, so the
+  // floor was the binding gate rather than the sway it was meant to clear.
+  // Sway is measured through the same camera, so `noiseLevel` is the floor that
+  // actually means something.
+  const limit = Math.min(0.3, Math.max(0.07, noiseLevel * 2, level * 0.4));
   const separation = level / noiseLevel;
+
+  // The same again for how quickly a tilt has to arrive.
+  //
+  // This was a constant, and a constant is wrong here for exactly the reason
+  // the angle was: a camera looking up at a guitarist flattens the roll it
+  // sees, so it flattens the rate of change too, and the fixed requirement
+  // became the thing blocking the gesture. Leaning is slowed by the same
+  // factor, so the ratio between a flick and a lean survives — which is the
+  // part that has to.
+  const onset = Math.max(topMean(rates?.right ?? [], 0.1), topMean(rates?.left ?? [], 0.1));
+  const swayRate = percentile((rates?.noise ?? []).map(Math.abs), 0.95);
+  const rate = onset
+    ? Math.min(ROLL_RATE, Math.max(0.04, swayRate * 1.5, onset * 0.5))
+    : ROLL_RATE;
 
   calibration = {
     scale: CALIBRATION_SCALE,
     mode: "tilt",
-    tilt: { limit, forwardSign, rightLevel, leftLevel, noiseLevel },
+    tilt: { limit, rate, forwardSign, rightLevel, leftLevel, noiseLevel },
     threshold: limit,
     separation,
     savedAt: new Date().toISOString().slice(0, 10),
@@ -1355,7 +1389,8 @@ function finishTiltCalibration(noise, right, left) {
 
   setCardMessage(`Calibrated — ${deg(limit)}° turns the page. ${verdict}`);
   el.calibStatus.textContent =
-    `right ${deg(rightLevel)}°  left ${deg(leftLevel)}°  sway ${deg(noiseLevel)}°  → ${deg(limit)}°`;
+    `right ${deg(rightLevel)}°  left ${deg(leftLevel)}°  sway ${deg(noiseLevel)}°  ` +
+    `→ ${deg(limit)}° at ${deg(rate)}°/0.3s`;
   showCalibrationState();
   setTimeout(() => setCardMessage(""), 12000);
   describeGesture(); // the help text quotes the limit, which just changed
