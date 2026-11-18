@@ -23,17 +23,23 @@
       max-width: 420px; width: 100%;
     }
     h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 4px; }
-    .lede { color: #5d636e; margin: 0 0 26px; font-size: 15px; line-height: 1.45; }
+    .lede { color: #5d636e; margin: 0 0 14px; font-size: 15px; line-height: 1.45; }
+    .how {
+      background: #f4f5f7; border-radius: 13px; padding: 12px 14px;
+      margin: 0 0 22px; font-size: 13.5px; line-height: 1.5; color: #15171c;
+    }
     .qr { display: flex; justify-content: center; margin-bottom: 8px; min-height: 220px; }
     .qr svg { border-radius: 10px; }
     .url { font-size: 13px; color: #8a909b; word-break: break-all; margin: 0 0 26px; }
 
     /* The two steps nobody should have to be told out loud. */
-    .steps { display: flex; align-items: stretch; gap: 10px; text-align: left; }
+    /* Stacked, so each step reads on one line. Side by side, "Add to Home
+       Screen" broke across three. */
+    .steps { display: flex; flex-direction: column; gap: 8px; text-align: left; }
     .step {
       flex: 1; display: flex; gap: 10px; align-items: center;
       background: #f4f5f7; border-radius: 13px; padding: 12px 13px;
-      font-size: 13px; line-height: 1.35;
+      font-size: 12.5px; line-height: 1.35;
     }
     .n {
       flex: 0 0 auto; width: 21px; height: 21px; border-radius: 50%;
@@ -48,13 +54,16 @@
       .card { box-shadow: none; max-width: none; }
       .note { display: none; }
     }
-    @media (max-width: 440px) { .steps { flex-direction: column; } }
   </style>
 </head>
 <body>
   <main class="card">
     <h1>AutoPage</h1>
-    <p class="lede">Turn the pages of a PDF score with your head.</p>
+    <p class="lede">Turn the pages of a PDF score with a gesture.</p>
+    <p class="how">
+      <b>Tilt</b> your head right → forward, left → back.<br />
+      <b>Wink</b> instead, if you are not wearing glasses.
+    </p>
 
     <div class="qr" id="qr"></div>
     <p class="url" id="url"></p>
@@ -62,7 +71,7 @@
     <div class="steps">
       <div class="step">
         <span class="n">1</span>
-        <span>Scan with the camera</span>
+        <span>Scan the QR</span>
       </div>
       <div class="step">
         <span class="n">2</span>

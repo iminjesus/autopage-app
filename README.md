@@ -103,10 +103,11 @@ and carry on there.
 
 ### Handing it to somebody
 
-`share.html` is a card with the code on it and the two steps drawn beside it —
-scan, then Share → Add to Home Screen. Print it, or hold up the screen. It reads
-the address from wherever it is served, so there is no URL to keep in step by
-hand, and "Card to share" in the Setup panel opens it.
+`share.html` is a card with the code on it, one line on how to use the app, and
+the two install steps drawn below — scan, then Share → Add to Home Screen. Print
+it, or hold up the screen. It reads the address from wherever it is served, so
+there is no URL to keep in step by hand, and "Card to share" in the Setup panel
+opens it.
 
 It exists because **iOS cannot do the thing you actually want**, which is for a
 scan to put an icon on the home screen. No web page can install itself there:
