@@ -89,8 +89,11 @@
          the top because that is where the lens is: a prompt in the corner asks
          the player to look away at the moment the gesture is being measured. -->
     <section class="watch" id="watch" hidden>
-      <video id="camPreview" class="cam" playsinline muted hidden></video>
+      <!-- The prompt first. Below the preview it was the thing that scrolled
+           off a phone, and it is the one part that has to be readable for the
+           whole six seconds the step lasts. -->
       <div class="trainer-status" id="gestureStatus" hidden></div>
+      <video id="camPreview" class="cam" playsinline muted hidden></video>
       <button id="allowBtn" class="btn btn-primary btn-block" hidden>Allow camera</button>
     </section>
 

@@ -303,3 +303,31 @@ laptops the wink on the reasoning that a close-up face reads well either way,
 which is true and beside the point: the app lives on a stand, the person setting
 it up on a laptop is setting it up for that stand, and the tilt is the one that
 survives glasses. The wink is a choice someone makes, not one they are handed.
+
+## A phone showed three things an iPad never would
+
+Reported from Android, from one screenshot: the panel's right-hand half off the
+screen, type at roughly twice its size, "Open PDF" not reading as a button, and
+the calibration instruction nowhere to be seen behind the camera preview.
+
+The type was **Chrome's text inflation**. It enlarges text inside anything it
+judges to be the main content of a page, independently of the CSS, and boxes
+sized in pixels do not grow with it — so the panel's contents spilled out of a
+320px card and the right-hand half went off screen. `text-size-adjust: 100%`
+turns it off. The score is the content here and the panel is chrome; neither
+wants a browser's opinion about reading size.
+
+**"Open PDF" was right.** `#262b36` on the panel's `#171a21` is a six per cent
+step in lightness, which is a button on a desktop display indoors and nothing at
+all on a phone in daylight. Every secondary button has a rim now.
+
+**The preview came before the prompt in the markup**, which on an iPad left
+both visible and on a phone pushed the instruction for the step being measured
+off the bottom of the card. The prompt is first now, and the preview is capped
+at a quarter of the screen: you need to see your face once to know you are in
+frame, and to read the prompt for the whole six seconds.
+
+`tools/phone-fit.mjs` checks the consequences at three widths — nothing wider
+than the screen, no sideways scroll, every button with a fill or a rim, and the
+prompt on screen whenever the preview is. It cannot reproduce text inflation,
+which is a browser heuristic rather than anything the page does.
