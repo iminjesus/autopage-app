@@ -341,8 +341,19 @@ a.btn-block {
   /* And a ceiling below the full height, so some score is always showing.
      Filling the screen makes "tap outside to close" an escape with nowhere to
      land — on a phone the panel reached 632px of 664. This is a score reader;
-     the settings are the thing that gives way. */
-  max-height: min(calc(100% - max(env(safe-area-inset-bottom), 16px) - 16px), 72%);
+     the settings are the thing that gives way.
+
+     It also stops below the camera card. That card sits above the panel and on
+     an iPad there is room for both, but on a phone the panel's top reached up
+     behind it — 117px of overlap on a 360-wide screen, with Open PDF hidden
+     behind the preview. --watch-bottom is the card's lower edge, measured and
+     published by the app whenever the card changes size, and 0 when it is not
+     showing. */
+  max-height: min(
+    calc(100% - max(env(safe-area-inset-bottom), 16px) - 16px),
+    calc(100% - var(--watch-bottom, 0px) - max(env(safe-area-inset-bottom), 16px) - 12px),
+    72%
+  );
   display: flex;
   flex-direction: column;
   background: var(--panel);

@@ -341,3 +341,21 @@ frame, and to read the prompt for the whole six seconds.
 than the screen, no sideways scroll, every button with a fill or a rim, and the
 prompt on screen whenever the preview is. It cannot reproduce text inflation,
 which is a browser heuristic rather than anything the page does.
+
+## The camera card and the panel both wanted the same corner
+
+The card floats at the top of the screen, because that is where the lens is.
+The panel grows upward from the bottom corner. On an iPad they never meet. On a
+phone the panel's top reached up behind the card — 73px of overlap at 412 wide,
+117px at 360 — and the card is the higher layer, so the first thing it hid was
+Open PDF, the button the panel is most often opened for.
+
+Nothing in CSS can know how tall that card is: it depends on how the prompt
+wraps and whether the preview is showing. So the app measures it and publishes
+the lower edge as `--watch-bottom`, and the panel's ceiling is the smallest of
+its three limits — the viewport, that edge, and 72%. A ResizeObserver keeps it
+current, which is less work than finding every place the card changes size.
+
+Checked by asking the question the report asked: does the card cover anything in
+the panel. The check was put against the old layout first and reported `117px
+over, hiding Open PDF` — the same thing the screenshot showed.

@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-20b buttons";
+const BUILD = "2026-11-20c no-overlap";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -1136,7 +1136,30 @@ function setCardMessage(text) {
 /** The card exists only while it has a prompt, a preview, or a problem. */
 function showWatch() {
   el.watch.hidden = el.gestureStatus.hidden && el.camPreview.hidden && el.allowBtn.hidden;
+  publishWatchHeight();
 }
+
+/**
+ * Tell the stylesheet where the camera card ends, so the panel can stop above
+ * it.
+ *
+ * The card floats over everything at the top of the screen and the panel grows
+ * upward from the bottom. On an iPad they never meet; on a phone the panel
+ * reached up behind the card and the first thing it hid was Open PDF. Nothing
+ * in CSS can know the card's height — it depends on the prompt's wording and
+ * whether the preview is up — so it is measured.
+ */
+function publishWatchHeight() {
+  const bottom = el.watch.hidden ? 0 : Math.round(el.watch.getBoundingClientRect().bottom);
+  document.documentElement.style.setProperty("--watch-bottom", `${bottom}px`);
+}
+
+// The card changes height on its own: a longer prompt wraps, the preview
+// appears and disappears. Watching it is simpler than finding every caller.
+if (typeof ResizeObserver === "function") {
+  new ResizeObserver(publishWatchHeight).observe(el.watch);
+}
+window.addEventListener("resize", publishWatchHeight);
 
 function startCalibration() {
   if (calibrating) {

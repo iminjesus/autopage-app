@@ -85,6 +85,22 @@ for (const [label, viewport] of [
   check(seen.watchH <= viewport.height - 60,
     `${label}: the camera card fits (${seen.watchH.toFixed(0)}px card, ${seen.camH.toFixed(0)}px preview)`);
 
+  // The card floats above the panel. On an iPad they never meet; on a phone
+  // the panel's top reached up behind it and the first thing it hid was the
+  // button you most often open the panel for.
+  const clash = await p.evaluate(() => {
+    const w = document.getElementById("watch").getBoundingClientRect();
+    const panel = document.getElementById("setupPanel").getBoundingClientRect();
+    const hidden = [...document.querySelectorAll("#setupPanel .btn, #setupPanel .field")]
+      .filter((n) => n.offsetParent !== null)
+      .filter((n) => n.getBoundingClientRect().top < w.bottom)
+      .map((n) => n.id || n.textContent.trim().split("\n")[0].slice(0, 20));
+    return { overlap: Math.max(0, w.bottom - panel.top), hidden };
+  });
+  check(clash.overlap === 0 && clash.hidden.length === 0,
+    `${label}: the camera card covers nothing in the panel` +
+      (clash.overlap ? ` — ${clash.overlap.toFixed(0)}px over, hiding ${clash.hidden.join(", ") || "nothing named"}` : ""));
+
   await p.click("#calibrateBtn"); // cancel
   await ctx.close();
 }
