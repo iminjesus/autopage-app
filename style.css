@@ -445,12 +445,13 @@ a.btn-block {
   background: var(--accent-strong);
 }
 
-/* A rim, so it reads as a button. #262b36 on the panel's #171a21 is a six
-   per cent step, which on a phone in daylight is no step at all — "Open PDF"
-   was reported as not looking like a button, and it was right. */
+/* A rim and a real step in lightness. #262b36 on the panel's #171a21 was six
+   per cent, which is a button on a desktop display indoors and nothing at all
+   on a phone in daylight. tools/phone-fit.mjs measures the step now rather
+   than trusting that one exists. */
 .btn-secondary {
-  background: #262b36;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #333a49;
+  border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .btn:disabled {

@@ -317,9 +317,19 @@ sized in pixels do not grow with it — so the panel's contents spilled out of a
 turns it off. The score is the content here and the panel is chrome; neither
 wants a browser's opinion about reading size.
 
-**"Open PDF" was right.** `#262b36` on the panel's `#171a21` is a six per cent
-step in lightness, which is a button on a desktop display indoors and nothing at
-all on a phone in daylight. Every secondary button has a rim now.
+**"Open PDF" was right**, and adding a rim did not fix it: reported again,
+unchanged. `#262b36` on the panel's `#171a21` is a contrast ratio of 1.23 — a
+button on a desktop display indoors, nothing at all on a phone in daylight — and
+a one-pixel rim at twelve per cent white does not rescue that. Opening a score
+is the reason the panel gets opened most times, so it is the accent blue there
+that it already was on the first screen, and the rest sit on a fill with a real
+step in it.
+
+The check that was supposed to catch this asked whether a button had *a*
+background, and passed on the broken styling. It measures the contrast ratio
+against the panel behind it now, and was confirmed to fail on the old colours
+before the new ones went in — a check that has never been seen to fail is not
+yet a check.
 
 **The preview came before the prompt in the markup**, which on an iPad left
 both visible and on a phone pushed the instruction for the step being measured

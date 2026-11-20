@@ -42,17 +42,33 @@ for (const [label, viewport] of [
   check(!(await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)),
     `${label}: the page does not scroll sideways`);
 
-  // Every button reads as one: a fill the eye can find against the panel.
-  const flat = await p.evaluate(() =>
-    [...document.querySelectorAll(".btn-secondary")]
+  // Every button reads as one — measured against what it sits on, not assumed.
+  //
+  // The first version of this asked whether the button had *a* background, and
+  // passed happily on a fill six per cent lighter than the panel behind it,
+  // which is invisible on a phone in daylight. It asks for a real step now:
+  // either a contrast ratio the eye can find, or a rim it can trace.
+  const weak = await p.evaluate(() => {
+    const lum = (css) => {
+      const [r, g, b] = css.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const panel = lum(getComputedStyle(document.getElementById("setupPanel")).backgroundColor);
+    return [...document.querySelectorAll(".btn")]
       .filter((n) => n.offsetParent !== null)
-      .filter((n) => {
+      .map((n) => {
         const s = getComputedStyle(n);
-        return s.backgroundColor === "rgba(0, 0, 0, 0)" && s.borderTopWidth === "0px";
+        const ratio = (Math.max(lum(s.backgroundColor), panel) + 0.05) /
+                      (Math.min(lum(s.backgroundColor), panel) + 0.05);
+        const rim = parseFloat(s.borderTopWidth) > 0 &&
+                    (s.borderTopColor.match(/[\d.]+/g)?.[3] ?? 1) >= 0.12;
+        return { what: n.id || n.textContent.trim().split("\n")[0], ratio: +ratio.toFixed(2), rim };
       })
-      .map((n) => n.id || n.textContent.trim())
-  );
-  check(flat.length === 0, `${label}: every button looks like one${flat.length ? " — " + flat.join(", ") : ""}`);
+      .filter((x) => x.ratio < 1.3 && !x.rim);
+  });
+  check(weak.length === 0,
+    `${label}: every button stands off the panel${weak.length ? " — " + weak.map((w) => `${w.what} x${w.ratio}`).join(", ") : ""}`);
 
   // And with the preview up, the prompt is still on screen.
   await p.click("#calibrateBtn");

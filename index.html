@@ -111,7 +111,10 @@
       <div class="panel-body">
         <p class="panel-desc" id="gestureHelp"></p>
 
-        <label class="btn btn-secondary btn-block file-swap">
+        <!-- The reason you open this panel, most times. It is blue on the
+             first screen and it is blue here: a dark rectangle on a dark panel
+             does not read as a button at all, whichever one you point at. -->
+        <label class="btn btn-primary btn-block file-swap">
           Open PDF
           <input type="file" id="swapFileInput" accept="application/pdf,.pdf" hidden />
         </label>
