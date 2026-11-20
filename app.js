@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-20c no-overlap";
+const BUILD = "2026-11-20d calib-alone";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -55,7 +55,8 @@ for (const id of [
   "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
-  "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "watch", "calibStatus",
+  "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
+  "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeTilt", "modeWink", "gestureHelp", "setupStatus",
 ]) el[id] = document.getElementById(id);
@@ -1167,6 +1168,7 @@ function startCalibration() {
     // otherwise wait forever with no way out.
     calibrating = null;
     el.camPreview.hidden = true;
+    el.cancelCalibBtn.hidden = true;
     setCardMessage("");
     showWatch();
     el.calibrateBtn.textContent = "Calibrate";
@@ -1174,7 +1176,12 @@ function startCalibration() {
     return;
   }
   el.calibrateBtn.textContent = "Cancel";
-  collapseSetup(false); // the countdown and the result are worth seeing
+  el.cancelCalibBtn.hidden = false;
+  // Out of the way, rather than half-covered. Everything calibration needs —
+  // the prompt, your face, and the way out — is in the card at the top, and on
+  // a phone the panel underneath it had nowhere to be that the card was not
+  // already sitting on.
+  collapseSetup(true);
   calibrating = {
     index: 0,
     samples: { noise: [], right: [], left: [] },
@@ -1244,6 +1251,7 @@ function finishCalibration() {
   const mode = gestureMode;
   calibrating = null;
   el.camPreview.hidden = true;
+  el.cancelCalibBtn.hidden = true;
   el.calibrateBtn.textContent = "Calibrate";
   showWatch();
 
@@ -2032,6 +2040,7 @@ async function beginWatching() {
 el.allowBtn.addEventListener("click", beginWatching);
 
 el.calibrateBtn.addEventListener("click", startCalibration);
+el.cancelCalibBtn.addEventListener("click", startCalibration); // a second press cancels
 
 /**
  * Calibrate before there is a score, from the first screen.

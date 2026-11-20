@@ -554,7 +554,11 @@ a.btn-block {
   z-index: 3;
   max-height: calc(100% - 80px);
   overflow-y: auto;
-  top: calc(env(safe-area-inset-top) + 44px);
+  /* As close to the lens as the chrome allows. The 44px was for a standalone
+     iOS status bar, which the safe-area inset already accounts for — on a
+     phone in a browser tab it was 44px of nothing, taken off the top of the
+     one card that has to fit. */
+  top: calc(env(safe-area-inset-top) + 12px);
   left: 50%;
   transform: translateX(-50%);
   width: min(440px, calc(100% - 32px));
@@ -615,7 +619,7 @@ a.btn-block {
      instruction for the step being measured off the bottom of it. You need to
      see your face once to know you are in frame; you need to read the prompt
      the whole time. */
-  max-height: 26vh;
+  max-height: min(26vh, 200px);
   object-fit: cover;
   border-radius: 10px;
   margin: 8px 0 0;

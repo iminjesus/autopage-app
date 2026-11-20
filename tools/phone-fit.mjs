@@ -70,7 +70,8 @@ for (const [label, viewport] of [
   check(weak.length === 0,
     `${label}: every button stands off the panel${weak.length ? " — " + weak.map((w) => `${w.what} x${w.ratio}`).join(", ") : ""}`);
 
-  // And with the preview up, the prompt is still on screen.
+  // Calibrating is its own moment: the card holds the prompt, your face and
+  // the way out, and the panel is folded away rather than half-covered.
   await p.click("#calibrateBtn");
   await p.waitForSelector("#camPreview:not([hidden])", { timeout: 10000 });
   await p.waitForTimeout(600);
@@ -101,7 +102,21 @@ for (const [label, viewport] of [
     `${label}: the camera card covers nothing in the panel` +
       (clash.overlap ? ` — ${clash.overlap.toFixed(0)}px over, hiding ${clash.hidden.join(", ") || "nothing named"}` : ""));
 
-  await p.click("#calibrateBtn"); // cancel
+  // And the way out is in the card, where the eye already is.
+  const escape = await p.evaluate(() => {
+    const b = document.getElementById("cancelCalibBtn");
+    const r = b.getBoundingClientRect();
+    return { shown: !b.hidden, bottom: r.bottom, folded: document.getElementById("setupPanel").classList.contains("collapsed") };
+  });
+  check(escape.shown && escape.bottom < viewport.height && escape.folded,
+    `${label}: Cancel is in the card and the panel is folded away ` +
+      `(shown ${escape.shown}, ends at ${escape.bottom.toFixed(0)}, folded ${escape.folded})`);
+
+  // Cancel from the card — the panel's own button is folded away by now,
+  // which is the point.
+  await p.click("#cancelCalibBtn");
+  await p.waitForTimeout(200);
+  check(await p.locator("#cancelCalibBtn").isHidden(), `${label}: Cancel ends the calibration`);
   await ctx.close();
 }
 

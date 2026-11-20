@@ -94,6 +94,9 @@
            whole six seconds the step lasts. -->
       <div class="trainer-status" id="gestureStatus" hidden></div>
       <video id="camPreview" class="cam" playsinline muted hidden></video>
+      <!-- Cancel lives here during calibration, so the panel can get out of
+           the way entirely instead of being half-covered by this card. -->
+      <button id="cancelCalibBtn" class="btn btn-secondary btn-block" hidden>Cancel</button>
       <button id="allowBtn" class="btn btn-primary btn-block" hidden>Allow camera</button>
     </section>
 

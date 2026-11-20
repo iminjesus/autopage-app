@@ -359,3 +359,14 @@ current, which is less work than finding every place the card changes size.
 Checked by asking the question the report asked: does the card cover anything in
 the panel. The check was put against the old layout first and reported `117px
 over, hiding Open PDF` — the same thing the screenshot showed.
+
+**That was not enough, and it was the wrong shape of fix.** Reported again, from
+a phone with a browser's own bars taking a third of the screen, which is less
+room than any measurement here had assumed. Arithmetic that has to come out
+right on every device's chrome will eventually not, so the collision is gone
+instead of being budgeted for: during calibration the panel folds to its gear
+and the card carries the prompt, the preview and Cancel. That is the whole
+interaction, in one place, at the top where the lens is — there is nothing left
+underneath to cover. The card also sits 32px higher now, which was 44px of
+allowance for a standalone iOS status bar that the safe-area inset already
+handles.
