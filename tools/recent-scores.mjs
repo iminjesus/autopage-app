@@ -72,11 +72,32 @@ list = await chooser();
 check(list.length === 5, `six opened, five kept: ${list.map((x) => x.name.replace(".pdf", "")).join(", ")}`);
 check(!list.some((x) => x.name === "Alpha.pdf"), "the oldest fell off the end");
 
-// Choosing one opens it, where it was left.
-await p.evaluate(() => { window.__autopage.state.page = 1; });
-await p.locator('.recent-item[title="Charlie.pdf"]').first().click();
+// Choosing one opens it — and says so at once, rather than when it is ready.
+//
+// Reading a stored PDF back and laying out its first page is a second or two
+// on a tablet. Every visible part of the answer used to be queued behind that,
+// so the tap looked like it had missed. These three are checked in the same
+// tick as the click, before anything has been read.
+const instant = await p.evaluate(() => {
+  const item = [...document.querySelectorAll("#recent .recent-item")]
+    .find((n) => n.title === "Charlie.pdf");
+  item.click();
+  return {
+    marked: item.getAttribute("aria-current") === "true",
+    collapsed: document.getElementById("setupPanel").classList.contains("collapsed"),
+    bar: !document.getElementById("loading").hidden,
+    dimmed: document.getElementById("score").classList.contains("busy"),
+    loaded: window.__autopage.state.name === "Charlie.pdf", // must still be false
+  };
+});
+check(instant.marked && instant.collapsed && instant.bar && instant.dimmed && !instant.loaded,
+  `the tap is answered in the same frame: ${JSON.stringify(instant)}`);
+
 await p.waitForFunction(() => window.__autopage.state.name === "Charlie.pdf", { timeout: 15000 });
 check(true, "tapping a thumbnail opens that score");
+await p.waitForTimeout(400);
+check(await p.locator("#loading").isHidden() && !(await p.evaluate(() => document.getElementById("score").classList.contains("busy"))),
+  "and the bar goes away when it is open");
 
 // The same file twice is one entry, not two.
 const before = (await chooser()).length;

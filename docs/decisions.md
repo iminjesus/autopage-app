@@ -396,3 +396,24 @@ claimed to check that "a different score can still be opened from the panel"
 while handing it the same file back and asserting it landed on page 1. That
 assertion stopped being true the day each score kept its own bookmark, which is
 how it was noticed — it had never been testing what it said.
+
+## Answer the tap before doing the work
+
+Tapping a thumbnail did nothing for 2.3 seconds on a tablet-speed CPU, and then
+everything at once. Reading a stored PDF back, parsing it and laying out its
+first page is genuinely that slow — but none of the *visible* response needed
+to wait for it. The blue mark moving, the panel shutting and a sign that
+something is happening cost nothing, and all three were queued behind the
+loading. Two bookkeeping writes — which entry is newest, which to reopen next
+launch — were in front of it as well, which is the wrong end entirely; they run
+after now, and dropped the open itself to 1.5s.
+
+What remains is a second and a half of work that cannot be wished away, so it
+is shown: a bar sweeping across the top of the score and the old page dimmed
+underneath. Dimmed rather than cleared, because the page you were on is better
+company for a second than an empty screen, and it makes it obvious which part
+is stale.
+
+The test checks the three instant parts **in the same tick as the click**,
+asserting the score has *not* loaded yet in that same snapshot. Checking them
+after the await would pass whether or not any of this were true.

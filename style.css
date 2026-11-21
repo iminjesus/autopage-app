@@ -60,6 +60,46 @@ body {
   background: #0b0d11;
 }
 
+/* A bar across the top of the score while one is being opened, and the page
+   underneath dimmed. Parsing a PDF and laying out its first page is a couple
+   of seconds on a tablet; before this, those seconds looked like the tap
+   having missed. */
+.loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 4;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: sweep 1s linear infinite;
+}
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+
+/* Not for anyone who has asked their system not to be moved at: the bar stays,
+   it just stops sweeping. */
+@media (prefers-reduced-motion: reduce) {
+  .loading::after { animation: none; width: 100%; opacity: 0.5; }
+}
+
+.score.busy .score-canvas {
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
 .score-canvas {
   max-width: 100%;
   max-height: 100%;
@@ -162,6 +202,10 @@ body {
 .recent-item[aria-current="true"] {
   border-color: var(--accent);
   color: var(--text);
+}
+
+.recent-item[aria-current="true"] {
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .recent-item img,

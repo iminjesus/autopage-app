@@ -27,6 +27,9 @@
     <!-- Score surface. The PDF page is drawn here; everything else floats over it. -->
     <div class="score" id="score">
       <canvas id="scoreCanvas" class="score-canvas" hidden></canvas>
+      <!-- Opening a stored score is seconds of work on a tablet. Something has
+           to be happening on screen for those seconds. -->
+      <div class="loading" id="loading" hidden></div>
 
       <div class="score-empty" id="scoreEmpty">
         <h1 class="title">AutoPage</h1>

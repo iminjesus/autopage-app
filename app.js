@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-21a recent-scores";
+const BUILD = "2026-11-21b answer-the-tap";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -49,7 +49,7 @@ const state = {
 
 const el = {};
 for (const id of [
-  "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
+  "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError", "loading",
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
   "sampleBtn", "startCalibrateBtn", "startCalibrateState", "recent", "recentPanel",
@@ -1616,6 +1616,7 @@ async function renderRecent() {
       item.className = "recent-item";
       item.type = "button";
       item.title = rec.name ?? "score";
+      item.dataset.id = rec.id;
       if (rec.id === state.scoreId) item.setAttribute("aria-current", "true");
       if (rec.thumb) {
         const img = document.createElement("img");
@@ -1636,19 +1637,51 @@ async function renderRecent() {
   }
 }
 
+/**
+ * Answer the tap before doing the work.
+ *
+ * Reading a stored PDF back, parsing it and laying out its first page was 2.3
+ * seconds on a throttled tablet, and every visible part of the response — the
+ * blue mark moving, the panel shutting — was queued behind all of it. Those
+ * three things cost nothing and belong first; the bookkeeping writes, which
+ * were also in front, belong last.
+ */
 async function openStored(id) {
   if (id === state.scoreId) return collapseSetup(true); // already here
   showError("");
+
+  markChosen(id);
+  collapseSetup(true);
+  setBusy(true);
+
   try {
     const rec = await dbDo("readonly", (store) => store.get(id));
     if (!rec?.bytes) return;
-    await dbDo("readwrite", (store) => store.put({ ...rec, at: Date.now() }, id));
-    await dbDo("readwrite", (store) => store.put(id, LAST));
     await openScore(rec.bytes, rec.name ?? "score", rec.page ?? 1, id);
-    collapseSetup(true);
+    // Which one is newest, and which to reopen next launch. Neither is worth
+    // a frame of the player's time.
+    dbDo("readwrite", (store) => store.put({ ...rec, at: Date.now() }, id)).catch(() => {});
+    dbDo("readwrite", (store) => store.put(id, LAST)).catch(() => {});
   } catch (err) {
     showError(`Could not reopen that score — ${err.message}`);
+  } finally {
+    setBusy(false);
   }
+}
+
+/** Move the blue mark now, rather than when the score has finished loading. */
+function markChosen(id) {
+  for (const box of [el.recent, el.recentPanel]) {
+    for (const item of box.querySelectorAll(".recent-item")) {
+      item.toggleAttribute("aria-current", item.dataset.id === id);
+      if (item.dataset.id === id) item.setAttribute("aria-current", "true");
+    }
+  }
+}
+
+function setBusy(busy) {
+  el.loading.hidden = !busy;
+  el.score.classList.toggle("busy", busy);
 }
 
 /**
@@ -1845,6 +1878,7 @@ async function loadFile(file) {
     return;
   }
   try {
+    setBusy(true);
     const bytes = await file.arrayBuffer();
     const id = await scoreId(bytes);
     await rememberScore(id, bytes, file.name, 1);
@@ -1853,6 +1887,8 @@ async function loadFile(file) {
   } catch (err) {
     console.error("failed to open score:", err);
     showError(`Could not open ${file.name} — ${err.message}`);
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -1957,6 +1993,7 @@ async function loadSample() {
   showError("");
   el.sampleBtn.disabled = true;
   el.sampleBtn.textContent = "Loading…";
+  setBusy(true);
   try {
     const res = await fetch(SAMPLE);
     if (!res.ok) throw new Error(`${res.status}`);
@@ -1967,6 +2004,7 @@ async function loadSample() {
   } catch (err) {
     showError(`Could not load the sample — ${err.message}`);
   } finally {
+    setBusy(false);
     el.sampleBtn.disabled = false;
     el.sampleBtn.textContent = "Try it with a sample score";
   }
