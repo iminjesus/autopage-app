@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v27";
+const CACHE = "autopage-v28";
 
 // The face model lives in its own cache, and that name never changes.
 //
@@ -84,7 +84,17 @@ let deadUntil = 0;
 async function respond(request) {
   const cached = await caches.match(request);
 
-  const network = fetch(request).then((res) => {
+  // The model's files are 13MB and their paths never change within a release.
+  // Once they are here there is nothing to ask the network about.
+  if (cached && MODEL.test(request.url)) return cached;
+
+  // `cache: "no-cache"` revalidates instead of trusting the browser's own HTTP
+  // cache. Without it "network first" is a lie on any host that sends a
+  // max-age — GitHub Pages sends ten minutes — because the fetch is answered
+  // from that cache and the worker faithfully stores the stale copy. It is
+  // what made Check for update do nothing for ten minutes after a push. A
+  // revalidation is a 304 and costs almost nothing.
+  const network = fetch(request, { cache: "no-cache" }).then((res) => {
     if (res && res.ok) {
       deadUntil = 0;
       const copy = res.clone();

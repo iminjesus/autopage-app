@@ -437,3 +437,28 @@ target, so the click has to stop there), and removing down to one score must
 not hide the chooser before the undo has been seen.
 
 The tile became a div with two buttons in it, because buttons do not nest.
+
+## "Network first" was not, on the host this is actually served from
+
+Check for update stopped working, and the worker was not at fault in the way it
+looked. It fetches, and `fetch` goes through the browser's own HTTP cache like
+any other request — so on a host that sends a `max-age`, and GitHub Pages sends
+ten minutes, the network leg is answered from that cache and the worker
+faithfully stores the stale copy it was handed. Network-first against a cache
+that answers for the network is just cache-first with extra steps.
+
+`cache: "no-cache"` on the fetch revalidates instead of trusting it. A
+revalidation is a 304 and costs nothing worth counting. The model's files are
+the exception and skip the network entirely once they are stored: 13MB, and
+their paths do not change within a release.
+
+The test server now sends `max-age=600` and an ETag, like the real host. It did
+not before, which is exactly why a test called "a new version arrives without
+force quitting" had been passing for a week while the thing it describes was
+broken in production. It was put against the unfixed worker first and failed.
+
+`registration.update()` also resolves when the check has been *made*, not when
+a new worker is ready, so the reload could happen with the old one still in
+charge — the press would appear to do nothing and a second press would work.
+It now waits for the installing worker to settle, with a bound, because often
+there is no new worker at all.

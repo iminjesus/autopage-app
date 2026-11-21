@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-21c remove-score";
+const BUILD = "2026-11-21d real-updates";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2389,11 +2389,30 @@ el.reloadBtn.addEventListener("click", async () => {
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     await reg?.update();
+    // update() resolves once the check has been made, not once a new worker is
+    // ready. Reloading in between leaves the old one still in charge and the
+    // press looking like it did nothing — so wait for the new one to finish
+    // installing, with a bound, because there may not be one.
+    if (reg?.installing) await workerReady(reg.installing, 8000);
   } catch (err) {
     console.warn("could not refresh the worker:", err.message);
   }
   location.reload();
 });
+
+function workerReady(worker, ms) {
+  return new Promise((resolve) => {
+    const done = () => {
+      if (worker.state === "installed" || worker.state === "activated" || worker.state === "redundant") {
+        worker.removeEventListener("statechange", done);
+        resolve();
+      }
+    };
+    worker.addEventListener("statechange", done);
+    setTimeout(resolve, ms);
+    done();
+  });
+}
 
 el.setupToggle.addEventListener("click", () => {
   collapseSetup(el.setupToggle.getAttribute("aria-expanded") === "true");

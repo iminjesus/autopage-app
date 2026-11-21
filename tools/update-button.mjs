@@ -30,7 +30,15 @@ const server = createServer(async (req, res) => {
         body.toString().replace(/const BUILD = "[^"]*";/, `const BUILD = "${patchBuild}";`)
       );
     }
-    res.writeHead(200, { "content-type": TYPES[extname(path)] ?? "application/octet-stream" });
+    // Like GitHub Pages: ten minutes of browser caching. Without this the
+    // test served everything fresh and never saw the bug it exists for —
+    // the worker fetches through the HTTP cache like anything else, so
+    // "network first" can still be answered by a ten-minute-old copy.
+    res.writeHead(200, {
+      "content-type": TYPES[extname(path)] ?? "application/octet-stream",
+      "cache-control": "max-age=600",
+      etag: `"${Buffer.byteLength(body)}-${patchBuild ?? "base"}"`,
+    });
     res.end(body);
   } catch {
     res.writeHead(404).end("not found");
