@@ -79,11 +79,11 @@ check(!list.some((x) => x.name === "Alpha.pdf"), "the oldest fell off the end");
 // so the tap looked like it had missed. These three are checked in the same
 // tick as the click, before anything has been read.
 const instant = await p.evaluate(() => {
-  const item = [...document.querySelectorAll("#recent .recent-item")]
+  const tile = [...document.querySelectorAll("#recent .recent-item")]
     .find((n) => n.title === "Charlie.pdf");
-  item.click();
+  tile.querySelector(".recent-open").click();
   return {
-    marked: item.getAttribute("aria-current") === "true",
+    marked: tile.getAttribute("aria-current") === "true",
     collapsed: document.getElementById("setupPanel").classList.contains("collapsed"),
     bar: !document.getElementById("loading").hidden,
     dimmed: document.getElementById("score").classList.contains("busy"),
@@ -120,10 +120,10 @@ const deep = await p.evaluate(() => window.__autopage.state.page);
 check(deep === 3, `turned the four-page score to page ${deep}`);
 
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
-await p.locator('.recent-item[title="Echo.pdf"]').first().click();
+await p.locator('.recent-item[title="Echo.pdf"] .recent-open').first().click();
 await p.waitForFunction(() => window.__autopage.state.name === "Echo.pdf", { timeout: 15000 });
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
-await p.locator('.recent-item[title="menuet-in-g.pdf"]').first().click();
+await p.locator('.recent-item[title="menuet-in-g.pdf"] .recent-open').first().click();
 await p.waitForFunction(() => window.__autopage.state.pageCount === 4, { timeout: 15000 });
 const backTo = await p.evaluate(() => window.__autopage.state.page);
 check(backTo === deep, `each score keeps its own page (left on ${deep}, came back to ${backTo})`);
@@ -136,6 +136,40 @@ await p.waitForTimeout(400);
 const back = await chooser();
 check(back.length === 5 && back.every((x) => x.hasThumb),
   `after a reload the five are still there with their pictures (${back.length})`);
+
+// --- Forgetting one -------------------------------------------------------
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+const beforeRemove = (await chooser()).map((x) => x.name);
+const openedBefore = await p.evaluate(() => window.__autopage.state.name);
+// Not the one that is open, so that "did it also open it?" stays answerable.
+const victim = beforeRemove.find((n) => n !== openedBefore) ?? beforeRemove[1];
+
+// The minus must not also open the thing it is removing.
+await p.locator(`.recent-item[title="${victim}"] .recent-remove`).first().click();
+await p.waitForTimeout(400);
+const afterRemove = (await chooser()).map((x) => x.name);
+check(!afterRemove.includes(victim) && afterRemove.length === beforeRemove.length - 1,
+  `removing ${victim.replace(".pdf", "")} drops it: ${beforeRemove.length} -> ${afterRemove.length}`);
+check((await p.evaluate(() => window.__autopage.state.name)) === openedBefore,
+  "the minus removes without also opening it");
+
+// And it can be taken back.
+check(await p.locator(".recent-undo").first().isVisible(), "an undo is offered");
+await p.locator(".recent-undo .linkish").first().click();
+await p.waitForTimeout(400);
+const afterUndo = (await chooser()).map((x) => x.name);
+check(afterUndo.includes(victim) && afterUndo.length === beforeRemove.length,
+  `undo puts ${victim.replace(".pdf", "")} back (${afterUndo.length})`);
+
+// Gone for good once the undo is: removed again, then reload.
+await p.locator(`.recent-item[title="${victim}"] .recent-remove`).first().click();
+await p.waitForTimeout(300);
+await p.reload({ waitUntil: "networkidle" });
+await p.waitForTimeout(600);
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+await p.waitForTimeout(300);
+check(!(await chooser()).map((x) => x.name).includes(victim),
+  "after a reload it is still gone, and so is the undo");
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

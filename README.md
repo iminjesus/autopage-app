@@ -99,7 +99,8 @@ press.
    once.
 
 The last five scores are kept, and the first screen and the Setup panel both
-show them as their own first pages to choose between. Each keeps its own page,
+show them as their own first pages to choose between. A **−** in the corner of
+a thumbnail forgets that one, with a few seconds to undo it. Each keeps its own page,
 so coming back to one comes back to where you left it. A score is identified by
 its contents rather than its filename: the same piece arriving as "score.pdf"
 from three different places is one entry with one bookmark, not three that

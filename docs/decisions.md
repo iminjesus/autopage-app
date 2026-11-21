@@ -417,3 +417,23 @@ is stale.
 The test checks the three instant parts **in the same tick as the click**,
 asserting the score has *not* loaded yet in that same snapshot. Checking them
 after the await would pass whether or not any of this were true.
+
+## Removing one, without a dialog in the way
+
+A **−** in the corner of each thumbnail. No confirmation: the file itself is
+still wherever it came from, so all this drops is the stored copy and the page
+it was left on — not enough to put a modal in front of, on a screen someone is
+using one-handed on a stand.
+
+Not nothing either, though. The page bookmark is worth something, and a small
+circle in the corner of a 72px tile is easy to catch with a thumb. So what was
+removed is held for eight seconds and offered back on a line under the tiles,
+which is cheaper for everyone than being asked "are you sure?" every time it is
+deliberate.
+
+Two details that are easy to get wrong and are tested: the **−** must not also
+open the score it is removing (it is inside the tile, and the tile is the open
+target, so the click has to stop there), and removing down to one score must
+not hide the chooser before the undo has been seen.
+
+The tile became a div with two buttons in it, because buttons do not nest.

@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-21b answer-the-tap";
+const BUILD = "2026-11-21c remove-score";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -1609,43 +1609,121 @@ async function renderRecent() {
   const all = await recentScores();
   for (const box of [el.recent, el.recentPanel]) {
     box.replaceChildren();
-    box.hidden = all.length < 2; // one score is not a choice
+    // One score is not a choice — but an undo offer has to be reachable even
+    // when removing the second one is what left you with one.
+    box.hidden = all.length < 2 && !removed;
     if (box.hidden) continue;
+
     for (const rec of all) {
-      const item = document.createElement("button");
-      item.className = "recent-item";
-      item.type = "button";
-      item.title = rec.name ?? "score";
-      item.dataset.id = rec.id;
-      if (rec.id === state.scoreId) item.setAttribute("aria-current", "true");
-      if (rec.thumb) {
-        const img = document.createElement("img");
-        img.src = rec.thumb;
-        img.alt = "";
-        item.append(img);
-      } else {
-        const blank = document.createElement("span");
-        blank.className = "blank";
-        item.append(blank);
-      }
-      const label = document.createElement("span");
-      label.textContent = (rec.name ?? "score").replace(/\.pdf$/i, "");
-      item.append(label);
-      item.addEventListener("click", () => openStored(rec.id));
-      box.append(item);
+      box.append(recentTile(rec));
     }
+    if (removed) box.append(undoRow());
   }
 }
 
 /**
- * Answer the tap before doing the work.
+ * One entry: a picture to open it by, and a way to forget it.
  *
- * Reading a stored PDF back, parsing it and laying out its first page was 2.3
- * seconds on a throttled tablet, and every visible part of the response — the
- * blue mark moving, the panel shutting — was queued behind all of it. Those
- * three things cost nothing and belong first; the bookkeeping writes, which
- * were also in front, belong last.
+ * A div rather than one big button, because the remove control is a button and
+ * buttons do not nest. The whole tile is still the open target — the remove is
+ * a corner of it.
  */
+function recentTile(rec) {
+  const tile = document.createElement("div");
+  tile.className = "recent-item";
+  tile.title = rec.name ?? "score";
+  tile.dataset.id = rec.id;
+  if (rec.id === state.scoreId) tile.setAttribute("aria-current", "true");
+
+  const open = document.createElement("button");
+  open.className = "recent-open";
+  open.type = "button";
+  if (rec.thumb) {
+    const img = document.createElement("img");
+    img.src = rec.thumb;
+    img.alt = "";
+    open.append(img);
+  } else {
+    const blank = document.createElement("span");
+    blank.className = "blank";
+    open.append(blank);
+  }
+  const label = document.createElement("span");
+  label.className = "recent-name";
+  label.textContent = (rec.name ?? "score").replace(/\.pdf$/i, "");
+  open.append(label);
+  open.addEventListener("click", () => openStored(rec.id));
+
+  const remove = document.createElement("button");
+  remove.className = "recent-remove";
+  remove.type = "button";
+  remove.textContent = "−";
+  remove.title = `Remove ${rec.name ?? "this score"} from the list`;
+  remove.setAttribute("aria-label", remove.title);
+  remove.addEventListener("click", (e) => {
+    e.stopPropagation(); // removing it is not opening it
+    removeStored(rec.id);
+  });
+
+  tile.append(open, remove);
+  return tile;
+}
+
+function undoRow() {
+  const row = document.createElement("div");
+  row.className = "recent-undo";
+  const text = document.createElement("span");
+  text.textContent = `Removed ${(removed.name ?? "score").replace(/\.pdf$/i, "")}`;
+  const undo = document.createElement("button");
+  undo.type = "button";
+  undo.className = "linkish";
+  undo.textContent = "Undo";
+  undo.addEventListener("click", undoRemove);
+  row.append(text, undo);
+  return row;
+}
+
+// --- Forgetting one ---
+//
+// Low stakes: the file itself is still wherever it came from, and this only
+// drops the stored copy and the page it was left on. Low enough not to put a
+// dialog in front of it on a touch screen — but the page bookmark is worth
+// something, and a "−" in the corner of a 72px tile is easy to catch with a
+// thumb, so what was removed is held for a few seconds and offered back.
+let removed = null;
+let undoTimer = null;
+const UNDO_FOR_MS = 8000;
+
+async function removeStored(id) {
+  try {
+    const rec = await dbDo("readonly", (store) => store.get(id));
+    if (!rec) return;
+    await dbDo("readwrite", (store) => store.delete(id));
+    removed = rec;
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => {
+      removed = null;
+      renderRecent();
+    }, UNDO_FOR_MS);
+    await renderRecent();
+  } catch (err) {
+    console.warn("could not remove that score:", err.message);
+  }
+}
+
+async function undoRemove() {
+  if (!removed) return;
+  const rec = removed;
+  removed = null;
+  clearTimeout(undoTimer);
+  try {
+    await dbDo("readwrite", (store) => store.put(rec, rec.id));
+  } catch (err) {
+    console.warn("could not put it back:", err.message);
+  }
+  await renderRecent();
+}
+
 async function openStored(id) {
   if (id === state.scoreId) return collapseSetup(true); // already here
   showError("");
@@ -1672,9 +1750,9 @@ async function openStored(id) {
 /** Move the blue mark now, rather than when the score has finished loading. */
 function markChosen(id) {
   for (const box of [el.recent, el.recentPanel]) {
-    for (const item of box.querySelectorAll(".recent-item")) {
-      item.toggleAttribute("aria-current", item.dataset.id === id);
-      if (item.dataset.id === id) item.setAttribute("aria-current", "true");
+    for (const tile of box.querySelectorAll(".recent-item")) {
+      if (tile.dataset.id === id) tile.setAttribute("aria-current", "true");
+      else tile.removeAttribute("aria-current");
     }
   }
 }
