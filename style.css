@@ -122,6 +122,70 @@ body {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* The last few scores, as their own first pages. A name in a list is not a
+   score you recognise; the top of the page is. */
+.recent {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.recent-panel {
+  justify-content: flex-start;
+  margin: 0 0 12px;
+  gap: 6px;
+}
+
+.recent-item {
+  width: 72px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 1.3;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: center;
+}
+
+.recent-panel .recent-item {
+  width: 60px;
+  font-size: 9.5px;
+}
+
+.recent-item:hover,
+.recent-item[aria-current="true"] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.recent-item img,
+.recent-item .blank {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  object-position: top center;
+  background: #fff;
+}
+
+.recent-item .blank {
+  background: #2a2f3b;
+}
+
+.recent-item span {
+  display: block;
+  padding: 4px 4px 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .start-note {
   margin: 12px 0 0;
   font-size: 13px;

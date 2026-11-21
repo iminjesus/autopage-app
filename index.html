@@ -40,6 +40,9 @@
           <button class="file-btn file-btn-quiet" id="startCalibrateBtn">Calibrate</button>
         </div>
 
+        <!-- The last few scores, as first pages. Filled by the app. -->
+        <div class="recent" id="recent" hidden></div>
+
         <p class="start-note" id="startCalibrateState"></p>
 
         <p class="start-note">
@@ -121,6 +124,10 @@
           Open PDF
           <input type="file" id="swapFileInput" accept="application/pdf,.pdf" hidden />
         </label>
+
+        <!-- And again here, because a remembered score opens straight away
+             and the first screen is not seen again. -->
+        <div class="recent recent-panel" id="recentPanel" hidden></div>
 
         <button id="calibrateBtn" class="btn btn-secondary btn-block">Calibrate</button>
 

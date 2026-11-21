@@ -94,9 +94,16 @@ press.
    and nothing otherwise appears.
 3. **Open a PDF, or press "try a sample score".** A four-page minuet is bundled,
    so there is nothing to find before you can see whether the gesture works on
-   your face. Whichever is open is stored and reopens on the page it was left
-   on. **Calibrate** is on the same screen, with a line under it saying whether
-   one is already saved — it is kept on the device and only needs doing once.
+   your face. **Calibrate** is on the same screen, with a line under it saying
+   whether one is already saved — it is kept on the device and only needs doing
+   once.
+
+The last five scores are kept, and the first screen and the Setup panel both
+show them as their own first pages to choose between. Each keeps its own page,
+so coming back to one comes back to where you left it. A score is identified by
+its contents rather than its filename: the same piece arriving as "score.pdf"
+from three different places is one entry with one bookmark, not three that
+disagree.
 
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.

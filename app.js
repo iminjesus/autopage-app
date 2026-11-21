@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-20d calib-alone";
+const BUILD = "2026-11-21a recent-scores";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -38,6 +38,7 @@ const state = {
   page: 1,
   pageCount: 0,
   name: null, // the file it came from, for error messages
+  scoreId: null, // its key in the store: a hash of its contents
   measures: new Map(), // page -> measures counted from the PDF's own drawing ops
   templates: new Map(), // page -> chroma heard just before a previous turn
   turnAt: null, // seconds; when the schedule says this page ends
@@ -51,7 +52,7 @@ for (const id of [
   "score", "scoreCanvas", "scoreEmpty", "fileInput", "scoreError",
   "nav", "prevBtn", "nextBtn",
   "setupPanel", "setupToggle", "diag", "allowBtn", "swapFileInput",
-  "sampleBtn", "startCalibrateBtn", "startCalibrateState",
+  "sampleBtn", "startCalibrateBtn", "startCalibrateState", "recent", "recentPanel",
   "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
@@ -158,7 +159,7 @@ async function showPage(n) {
  *               the page it was left on — a set is not always played from the
  *               top, and neither is a rehearsal.
  */
-async function openScore(bytes, name, startPage = 1) {
+async function openScore(bytes, name, startPage = 1, id = null) {
   // pdf.js takes ownership of the buffer it is handed and leaves it detached,
   // so what goes to storage has to be a copy taken before it does.
   const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
@@ -166,6 +167,7 @@ async function openScore(bytes, name, startPage = 1) {
   state.doc = doc;
   state.pageCount = doc.numPages;
   state.name = name;
+  state.scoreId = id;
   state.page = Math.min(Math.max(startPage, 1), doc.numPages);
   state.measures.clear();
   pageCache.clear();
@@ -187,6 +189,8 @@ async function openScore(bytes, name, startPage = 1) {
 
   await showPage(state.page);
   render();
+  storeThumb(id, doc); // not awaited: a picture for the chooser, not for now
+  renderRecent();
 
   for (let n = 1; n <= doc.numPages; n++) {
     state.measures.set(n, await readPage(doc, n));
@@ -1504,7 +1508,8 @@ document.addEventListener(
 
 const DB_NAME = "autopage";
 const DB_STORE = "scores";
-const LAST = "last";
+const LAST = "last"; // -> the id of the score to reopen
+const MAX_RECENT = 5;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -1528,18 +1533,151 @@ function dbDo(mode, fn) {
 }
 
 /**
- * Storing the score is a convenience, never a requirement. A private window, a
- * browser with storage blocked, or a quota that a large score does not fit in
- * are all ordinary — the app opens the file it was handed either way, so none
- * of them is allowed to surface as an error.
+ * A score's identity is its contents.
+ *
+ * Not its filename: the same piece arrives as "score.pdf" from three different
+ * places, and two copies of one file should be one entry with one bookmark
+ * rather than two that disagree about which page you are on.
  */
-async function rememberScore(bytes, name, page) {
+async function scoreId(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest).slice(0, 8)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** Every stored score, newest first. */
+async function recentScores() {
   try {
+    const db = await openDb();
+    return await new Promise((resolve, reject) => {
+      const store = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE);
+      const req = store.getAll();
+      req.onsuccess = () =>
+        resolve(
+          req.result
+            .filter((r) => r && r.bytes && r.id)
+            .sort((x, y) => (y.at ?? 0) - (x.at ?? 0))
+        );
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Storing a score is a convenience, never a requirement. A private window, a
+ * browser with storage blocked, or a quota a large score does not fit in are
+ * all ordinary — the app opens the file it was handed either way, so none of
+ * them is allowed to surface as an error.
+ */
+async function rememberScore(id, bytes, name, page) {
+  try {
+    const existing = await dbDo("readonly", (store) => store.get(id));
     await dbDo("readwrite", (store) =>
-      store.put({ bytes, name, page, at: Date.now() }, LAST)
+      store.put(
+        { id, bytes, name, page: existing?.page ?? page, thumb: existing?.thumb, at: Date.now() },
+        id
+      )
     );
+    await dbDo("readwrite", (store) => store.put(id, LAST));
+    await pruneScores();
   } catch (err) {
+    // Out of room is the likely one, and dropping the oldest is the answer
+    // rather than refusing to remember anything ever again.
     console.warn("could not store the score:", err.message);
+    await pruneScores(MAX_RECENT - 1).catch(() => {});
+  }
+}
+
+async function pruneScores(keep = MAX_RECENT) {
+  const all = await recentScores();
+  for (const rec of all.slice(keep)) {
+    await dbDo("readwrite", (store) => store.delete(rec.id));
+  }
+}
+
+/**
+ * Draw the chooser, in both places it lives.
+ *
+ * A filename in a list is not a score anyone recognises — the top of the first
+ * page is. Both containers get the same markup from here rather than one being
+ * written twice and drifting.
+ */
+async function renderRecent() {
+  const all = await recentScores();
+  for (const box of [el.recent, el.recentPanel]) {
+    box.replaceChildren();
+    box.hidden = all.length < 2; // one score is not a choice
+    if (box.hidden) continue;
+    for (const rec of all) {
+      const item = document.createElement("button");
+      item.className = "recent-item";
+      item.type = "button";
+      item.title = rec.name ?? "score";
+      if (rec.id === state.scoreId) item.setAttribute("aria-current", "true");
+      if (rec.thumb) {
+        const img = document.createElement("img");
+        img.src = rec.thumb;
+        img.alt = "";
+        item.append(img);
+      } else {
+        const blank = document.createElement("span");
+        blank.className = "blank";
+        item.append(blank);
+      }
+      const label = document.createElement("span");
+      label.textContent = (rec.name ?? "score").replace(/\.pdf$/i, "");
+      item.append(label);
+      item.addEventListener("click", () => openStored(rec.id));
+      box.append(item);
+    }
+  }
+}
+
+async function openStored(id) {
+  if (id === state.scoreId) return collapseSetup(true); // already here
+  showError("");
+  try {
+    const rec = await dbDo("readonly", (store) => store.get(id));
+    if (!rec?.bytes) return;
+    await dbDo("readwrite", (store) => store.put({ ...rec, at: Date.now() }, id));
+    await dbDo("readwrite", (store) => store.put(id, LAST));
+    await openScore(rec.bytes, rec.name ?? "score", rec.page ?? 1, id);
+    collapseSetup(true);
+  } catch (err) {
+    showError(`Could not reopen that score — ${err.message}`);
+  }
+}
+
+/**
+ * A picture of the first page, small enough to keep five of.
+ *
+ * Taken once per score and stored with it, because rendering five first pages
+ * to choose between them would mean parsing five PDFs before the chooser could
+ * be drawn — on the screen whose whole job is to be quick.
+ */
+async function storeThumb(id, doc) {
+  try {
+    if (!id || (await dbDo("readonly", (store) => store.get(id)))?.thumb) return;
+    const page = await doc.getPage(1);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: 150 / base.width });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    page.cleanup();
+    const thumb = canvas.toDataURL("image/jpeg", 0.7);
+    const rec = await dbDo("readonly", (store) => store.get(id));
+    if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, thumb }, id));
+    renderRecent();
+  } catch (err) {
+    console.warn("no thumbnail:", err.message);
   }
 }
 
@@ -1548,8 +1686,9 @@ let pendingPage = null;
 
 async function writePage(page) {
   try {
-    const rec = await dbDo("readonly", (store) => store.get(LAST));
-    if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, page }, LAST));
+    if (!state.scoreId) return;
+    const rec = await dbDo("readonly", (store) => store.get(state.scoreId));
+    if (rec) await dbDo("readwrite", (store) => store.put({ ...rec, page }, state.scoreId));
   } catch {}
 }
 
@@ -1582,9 +1721,22 @@ document.addEventListener("visibilitychange", () => {
 
 async function restoreLastScore() {
   try {
-    const rec = await dbDo("readonly", (store) => store.get(LAST));
+    let pointer = await dbDo("readonly", (store) => store.get(LAST));
+
+    // What "last" used to hold was the record itself. Anyone who has used this
+    // before has one, and it is their score — move it to its own id rather
+    // than make them find the file again.
+    if (pointer && typeof pointer === "object" && pointer.bytes) {
+      const id = await scoreId(pointer.bytes);
+      await dbDo("readwrite", (store) => store.put({ ...pointer, id, at: Date.now() }, id));
+      await dbDo("readwrite", (store) => store.put(id, LAST));
+      pointer = id;
+    }
+    if (typeof pointer !== "string") return false;
+
+    const rec = await dbDo("readonly", (store) => store.get(pointer));
     if (!rec?.bytes) return false;
-    await openScore(rec.bytes, rec.name ?? "the last score", rec.page ?? 1);
+    await openScore(rec.bytes, rec.name ?? "the last score", rec.page ?? 1, rec.id);
     return true;
   } catch (err) {
     console.warn("could not reopen the last score:", err.message);
@@ -1694,8 +1846,10 @@ async function loadFile(file) {
   }
   try {
     const bytes = await file.arrayBuffer();
-    await rememberScore(bytes, file.name, 1);
-    await openScore(bytes, file.name, 1);
+    const id = await scoreId(bytes);
+    await rememberScore(id, bytes, file.name, 1);
+    const rec = await dbDo("readonly", (store) => store.get(id)).catch(() => null);
+    await openScore(bytes, file.name, rec?.page ?? 1, id);
   } catch (err) {
     console.error("failed to open score:", err);
     showError(`Could not open ${file.name} — ${err.message}`);
@@ -1807,8 +1961,9 @@ async function loadSample() {
     const res = await fetch(SAMPLE);
     if (!res.ok) throw new Error(`${res.status}`);
     const bytes = await res.arrayBuffer();
-    await rememberScore(bytes, "sample — Menuet in G", 1);
-    await openScore(bytes, "sample — Menuet in G", 1);
+    const id = await scoreId(bytes);
+    await rememberScore(id, bytes, "sample — Menuet in G", 1);
+    await openScore(bytes, "sample — Menuet in G", 1, id);
   } catch (err) {
     showError(`Could not load the sample — ${err.message}`);
   } finally {
@@ -2171,6 +2326,7 @@ if ("serviceWorker" in navigator) {
 }
 
 countVisit();
+renderRecent();
 loadCalibration();
 loadHold();
 showCalibrationState();

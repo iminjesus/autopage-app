@@ -4,6 +4,10 @@
 // and never think about, so it is also the one where a silent failure is worst:
 // it looks exactly like the app having forgotten, with nothing to read.
 import { chromium } from "playwright-core";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { executablePath } from "./browser.mjs";
 const b = await chromium.launch({ executablePath });
 const ctx = await b.newContext(); // one origin, one storage, across reloads
@@ -39,14 +43,21 @@ const back = await shot();
 console.log("after a reload    ->", JSON.stringify(back));
 console.log(back.page === 3 ? "ok   came back on page 3" : `FAIL came back on page ${back.page}, wanted 3`);
 
-// And a different score can still be opened once one is showing — the picker on
-// the empty screen is gone by then, and a tablet has nothing to drag.
+// And a different score can still be opened once one is showing — the picker
+// on the empty screen is gone by then, and a tablet has nothing to drag.
+//
+// A genuinely different one. This handed it the same file back and asserted it
+// landed on page 1, which stopped being true the day each score started
+// keeping its own bookmark — and it had never been testing what it said.
+const other = join(mkdtempSync(join(tmpdir(), "autopage-other-")), "Other.pdf");
+execFileSync("python3", [new URL("./make-test-pdf.py", import.meta.url).pathname, "Other", other]);
+
 await p.evaluate(() => {
   document.getElementById("setupPanel").hidden = false;
   document.getElementById("setupToggle").setAttribute("aria-expanded", "true");
 });
-await p.setInputFiles("#swapFileInput", "/workspace/autopage-app/fixtures/menuet-in-g.pdf");
-await p.waitForFunction(() => window.__autopage.state.page === 1, { timeout: 10000 });
+await p.setInputFiles("#swapFileInput", other);
+await p.waitForFunction(() => window.__autopage.state.name === "Other.pdf", { timeout: 10000 });
 console.log("ok   another score opens from the panel");
 
 const awake = await p.evaluate(() => "wakeLock" in navigator);

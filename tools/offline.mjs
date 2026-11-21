@@ -96,15 +96,25 @@ check(true, `it reports: "${(await p.textContent("#offlineState")).slice(0, 52)}
 // Polled from here rather than with waitForFunction: that one treats the
 // Promise an async predicate returns as the truthy answer instead of awaiting
 // it, so it reported the write as done while the database still said otherwise.
+// "last" is a pointer to the score's own entry, not the entry — the store
+// holds several now. Following it is what the app does, so it is what this
+// does, rather than knowing a layout that has already changed once.
 const storedPage = () =>
   p.evaluate(
     () =>
       new Promise((res) => {
         const r = indexedDB.open("autopage", 1);
         r.onsuccess = () => {
-          const q = r.result.transaction("scores", "readonly").objectStore("scores").get("last");
-          q.onsuccess = () => res(q.result?.page ?? null);
-          q.onerror = () => res(null);
+          const store = r.result.transaction("scores", "readonly").objectStore("scores");
+          const ptr = store.get("last");
+          ptr.onsuccess = () => {
+            const id = ptr.result;
+            if (typeof id !== "string") return res(id?.page ?? null); // the old shape
+            const rec = store.get(id);
+            rec.onsuccess = () => res(rec.result?.page ?? null);
+            rec.onerror = () => res(null);
+          };
+          ptr.onerror = () => res(null);
         };
         r.onerror = () => res(null);
       })

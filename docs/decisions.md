@@ -370,3 +370,29 @@ interaction, in one place, at the top where the lens is — there is nothing lef
 underneath to cover. The card also sits 32px higher now, which was 44px of
 allowance for a standalone iOS status bar that the safe-area inset already
 handles.
+
+## Five scores, chosen by looking at them
+
+The store held exactly one score, under the key `last`. It holds five now,
+each keyed by a **hash of its contents** rather than its filename — the same
+piece arrives as `score.pdf` from three different places, and two copies of one
+file should be one entry with one bookmark rather than two that disagree about
+which page you are on. Anyone who already had the single-score shape has it
+migrated on first load; making them find the file again would be a poor trade
+for a tidier schema.
+
+They are chosen by their own first page. A filename in a list is not a score
+anyone recognises. The picture is taken once, when the score is opened, and
+stored beside it — rendering five first pages at the moment the chooser is
+drawn would mean parsing five PDFs on the screen whose whole job is to be quick.
+
+The chooser appears in two places and hides itself when there is only one score,
+because one score is not a choice. Two places because a remembered score opens
+straight into itself, so the first screen stops being seen — the same reason
+Add to Home Screen ended up in the panel as well.
+
+Two tests had to change, and only one of them because the schema did. The other
+claimed to check that "a different score can still be opened from the panel"
+while handing it the same file back and asserting it landed on page 1. That
+assertion stopped being true the day each score kept its own bookmark, which is
+how it was noticed — it had never been testing what it said.
