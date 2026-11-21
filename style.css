@@ -164,18 +164,23 @@ body {
 
 /* The last few scores, as their own first pages. A name in a list is not a
    score you recognise; the top of the page is. */
+/* A column as wide as its widest row, so a group's heading — and the button
+   that drops the whole group — line up with the tiles underneath instead of
+   drifting out to the edge of the screen. */
 .recent {
   display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-  margin-top: 18px;
+  flex-direction: column;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 18px auto 0;
+  text-align: left;
 }
 
 .recent-panel {
-  justify-content: flex-start;
+  width: auto;
   margin: 0 0 12px;
-  gap: 6px;
+  gap: 4px;
 }
 
 .recent-item {
@@ -229,8 +234,56 @@ body {
 }
 
 /* Its own line under the tiles, not squeezed in beside them. */
+/* A Sunday's heading: its name, how many songs, and a way to drop the lot. */
+.recent-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 -2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.recent-panel .recent-head {
+  margin-top: 4px;
+}
+
+.recent-count {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.recent-drop {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.recent-drop:hover {
+  background: #c0392b;
+  color: #fff;
+}
+
+.recent-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-panel .recent-row {
+  gap: 6px;
+}
+
 .recent-undo {
-  flex-basis: 100%;
   display: flex;
   align-items: center;
   justify-content: center;

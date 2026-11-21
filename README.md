@@ -98,13 +98,19 @@ press.
    whether one is already saved — it is kept on the device and only needs doing
    once.
 
-The last five scores are kept, and the first screen and the Setup panel both
-show them as their own first pages to choose between. A **−** in the corner of
-a thumbnail forgets that one, with a few seconds to undo it. Each keeps its own page,
-so coming back to one comes back to where you left it. A score is identified by
-its contents rather than its filename: the same piece arriving as "score.pdf"
-from three different places is one entry with one bookmark, not three that
-disagree.
+**Select a Sunday's songs together** and they are kept together, as a set named
+for the day — "Nov 21", in the order they are numbered. Open one score on its
+own and it sits under "Other". The last four sets are kept, and six loose
+scores beside them; both the first screen and the Setup panel show every score
+as its own first page to choose between.
+
+A **−** in the corner of a thumbnail forgets that one, and the **−** beside a
+set's name forgets the whole Sunday — either way with a few seconds to undo it.
+Each score keeps its own page, so coming back to one comes back to where you
+left it, and a song that appears in two Sundays is still one entry with one
+bookmark. A score is identified by its contents rather than its filename: the
+same piece arriving as "score.pdf" from three different places is one entry,
+not three that disagree.
 
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.

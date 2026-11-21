@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-21d real-updates";
+const BUILD = "2026-11-21e sets";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -1509,7 +1509,11 @@ document.addEventListener(
 const DB_NAME = "autopage";
 const DB_STORE = "scores";
 const LAST = "last"; // -> the id of the score to reopen
-const MAX_RECENT = 5;
+// A worship set is four to six songs, so a cap of five scores filled up with
+// one Sunday and pushed the previous one out. Sets are the unit now, and they
+// are what gets pruned: whole Sundays, oldest first.
+const MAX_SETS = 4;
+const MAX_LOOSE = 6; // scores opened on their own, belonging to no set
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -1546,24 +1550,53 @@ async function scoreId(bytes) {
     .join("");
 }
 
-/** Every stored score, newest first. */
-async function recentScores() {
+/** Everything in the store: score records, set records, the `last` pointer. */
+async function allRecords() {
   try {
     const db = await openDb();
     return await new Promise((resolve, reject) => {
       const store = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE);
       const req = store.getAll();
-      req.onsuccess = () =>
-        resolve(
-          req.result
-            .filter((r) => r && r.bytes && r.id)
-            .sort((x, y) => (y.at ?? 0) - (x.at ?? 0))
-        );
+      req.onsuccess = () => resolve(req.result ?? []);
       req.onerror = () => reject(req.error);
     });
   } catch {
     return [];
   }
+}
+
+const byNewest = (x, y) => (y.at ?? 0) - (x.at ?? 0);
+
+/** Every stored score, newest first. */
+async function recentScores() {
+  return (await allRecords()).filter((r) => r && r.bytes && r.id).sort(byNewest);
+}
+
+const setKey = (setId) => `set:${setId}`;
+
+/**
+ * The sets, newest first, each with its scores in the order they were added.
+ *
+ * A set is a Sunday: the songs that belong together, in the order they are
+ * played. The set record holds only the order — the scores themselves stay
+ * where they were, so a song in two Sundays is still one entry with one
+ * bookmark.
+ */
+async function allSets() {
+  const records = await allRecords();
+  const scores = new Map(records.filter((r) => r?.bytes && r.id).map((r) => [r.id, r]));
+  return records
+    .filter((r) => r?.setId && Array.isArray(r.order))
+    .sort(byNewest)
+    .map((set) => ({ ...set, scores: set.order.map((id) => scores.get(id)).filter(Boolean) }))
+    .filter((set) => set.scores.length);
+}
+
+/** Scores that belong to no set — opened one at a time. */
+async function looseScores() {
+  const sets = await allSets();
+  const inASet = new Set(sets.flatMap((s) => s.order));
+  return (await recentScores()).filter((r) => !inASet.has(r.id));
 }
 
 /**
@@ -1572,7 +1605,7 @@ async function recentScores() {
  * all ordinary — the app opens the file it was handed either way, so none of
  * them is allowed to surface as an error.
  */
-async function rememberScore(id, bytes, name, page) {
+async function rememberScore(id, bytes, name, page, { pointAt = true } = {}) {
   try {
     const existing = await dbDo("readonly", (store) => store.get(id));
     await dbDo("readwrite", (store) =>
@@ -1581,21 +1614,88 @@ async function rememberScore(id, bytes, name, page) {
         id
       )
     );
-    await dbDo("readwrite", (store) => store.put(id, LAST));
-    await pruneScores();
+    if (pointAt) await dbDo("readwrite", (store) => store.put(id, LAST));
+    await prune();
   } catch (err) {
     // Out of room is the likely one, and dropping the oldest is the answer
     // rather than refusing to remember anything ever again.
     console.warn("could not store the score:", err.message);
-    await pruneScores(MAX_RECENT - 1).catch(() => {});
+    await prune(MAX_SETS - 1, MAX_LOOSE - 1).catch(() => {});
   }
 }
 
-async function pruneScores(keep = MAX_RECENT) {
-  const all = await recentScores();
-  for (const rec of all.slice(keep)) {
+/**
+ * Store a Sunday: several scores that belong together, in order.
+ *
+ * Named for the day rather than by the player, because that is what makes two
+ * of them tell apart at a glance, and because it is what a shared folder of
+ * dated subfolders will hand over later.
+ */
+async function rememberSet(name, ids) {
+  if (!ids.length) return null;
+
+  // Opening the same folder again is the same Sunday, not a second one that
+  // happens to hold the same songs under the same heading.
+  const already = (await allSets()).find(
+    (s) => s.order.length === ids.length && s.order.every((id, i) => id === ids[i])
+  );
+  if (already) {
+    const { scores: _members, ...record } = already;
+    await dbDo("readwrite", (store) =>
+      store.put({ ...record, at: Date.now() }, setKey(already.setId))
+    ).catch(() => {});
+    return already.setId;
+  }
+
+  // Two different sets on one day would otherwise both read "Nov 21", which
+  // tells you nothing about which is which.
+  const taken = new Set((await allSets()).map((s) => s.name));
+  let unique = name;
+  for (let n = 2; taken.has(unique); n++) unique = `${name} (${n})`;
+
+  const setId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  try {
+    await dbDo("readwrite", (store) =>
+      store.put({ setId, name: unique, order: ids, at: Date.now() }, setKey(setId))
+    );
+    await prune();
+  } catch (err) {
+    console.warn("could not store the set:", err.message);
+  }
+  return setId;
+}
+
+/**
+ * Keep the last few Sundays whole, and a few loose scores beside them.
+ *
+ * Pruning by score count was wrong once sets existed: five is one Sunday, so
+ * every new Sunday erased the one before it mid-list, leaving half a set
+ * behind. A Sunday goes or stays as a unit.
+ */
+async function prune(keepSets = MAX_SETS, keepLoose = MAX_LOOSE) {
+  const sets = await allSets();
+  for (const set of sets.slice(keepSets)) {
+    for (const score of set.scores) {
+      await dbDo("readwrite", (store) => store.delete(score.id));
+    }
+    await dbDo("readwrite", (store) => store.delete(setKey(set.setId)));
+  }
+  for (const rec of (await looseScores()).slice(keepLoose)) {
     await dbDo("readwrite", (store) => store.delete(rec.id));
   }
+}
+
+/** Forget a whole Sunday, scores and all. */
+async function removeSet(setId) {
+  const set = (await allSets()).find((s) => s.setId === setId);
+  if (!set) return;
+  removed = { set, scores: set.scores };
+  for (const score of set.scores) {
+    await dbDo("readwrite", (store) => store.delete(score.id));
+  }
+  await dbDo("readwrite", (store) => store.delete(setKey(setId)));
+  armUndo();
+  await renderRecent();
 }
 
 /**
@@ -1606,19 +1706,58 @@ async function pruneScores(keep = MAX_RECENT) {
  * written twice and drifting.
  */
 async function renderRecent() {
-  const all = await recentScores();
+  const sets = await allSets();
+  const loose = await looseScores();
+  const total = sets.reduce((n, s) => n + s.scores.length, 0) + loose.length;
+
   for (const box of [el.recent, el.recentPanel]) {
     box.replaceChildren();
     // One score is not a choice — but an undo offer has to be reachable even
     // when removing the second one is what left you with one.
-    box.hidden = all.length < 2 && !removed;
+    box.hidden = total < 2 && !removed;
     if (box.hidden) continue;
 
-    for (const rec of all) {
-      box.append(recentTile(rec));
+    for (const set of sets) {
+      box.append(groupHeading(set.name, set.scores.length, () => removeSet(set.setId)));
+      const row = document.createElement("div");
+      row.className = "recent-row";
+      for (const rec of set.scores) row.append(recentTile(rec));
+      box.append(row);
+    }
+    if (loose.length) {
+      // Only worth a heading when there is a set above it to tell it from.
+      if (sets.length) box.append(groupHeading("Other", loose.length));
+      const row = document.createElement("div");
+      row.className = "recent-row";
+      for (const rec of loose) row.append(recentTile(rec));
+      box.append(row);
     }
     if (removed) box.append(undoRow());
   }
+}
+
+function groupHeading(name, count, onRemove) {
+  const head = document.createElement("div");
+  head.className = "recent-head";
+
+  const label = document.createElement("span");
+  label.textContent = name;
+  const n = document.createElement("span");
+  n.className = "recent-count";
+  n.textContent = count === 1 ? "1 score" : `${count} scores`;
+  head.append(label, n);
+
+  if (onRemove) {
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "recent-drop";
+    drop.textContent = "−";
+    drop.title = `Remove ${name} and its scores`;
+    drop.setAttribute("aria-label", drop.title);
+    drop.addEventListener("click", onRemove);
+    head.append(drop);
+  }
+  return head;
 }
 
 /**
@@ -1673,7 +1812,7 @@ function undoRow() {
   const row = document.createElement("div");
   row.className = "recent-undo";
   const text = document.createElement("span");
-  text.textContent = `Removed ${(removed.name ?? "score").replace(/\.pdf$/i, "")}`;
+  text.textContent = `Removed ${removedLabel()}`;
   const undo = document.createElement("button");
   undo.type = "button";
   undo.className = "linkish";
@@ -1699,29 +1838,47 @@ async function removeStored(id) {
     const rec = await dbDo("readonly", (store) => store.get(id));
     if (!rec) return;
     await dbDo("readwrite", (store) => store.delete(id));
-    removed = rec;
-    clearTimeout(undoTimer);
-    undoTimer = setTimeout(() => {
-      removed = null;
-      renderRecent();
-    }, UNDO_FOR_MS);
+    removed = { scores: [rec] };
+    armUndo();
     await renderRecent();
   } catch (err) {
     console.warn("could not remove that score:", err.message);
   }
 }
 
+function armUndo() {
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => {
+    removed = null;
+    renderRecent();
+  }, UNDO_FOR_MS);
+}
+
 async function undoRemove() {
   if (!removed) return;
-  const rec = removed;
+  const { set, scores } = removed;
   removed = null;
   clearTimeout(undoTimer);
   try {
-    await dbDo("readwrite", (store) => store.put(rec, rec.id));
+    for (const rec of scores) {
+      await dbDo("readwrite", (store) => store.put(rec, rec.id));
+    }
+    // The set record has to come back too, or its songs return as loose ones.
+    if (set) {
+      const { scores: _members, ...record } = set;
+      await dbDo("readwrite", (store) => store.put(record, setKey(set.setId)));
+    }
   } catch (err) {
     console.warn("could not put it back:", err.message);
   }
   await renderRecent();
+}
+
+/** What the undo line says it will bring back. */
+function removedLabel() {
+  if (removed?.set) return `${removed.set.name} (${removed.scores.length})`;
+  const name = removed?.scores?.[0]?.name ?? "score";
+  return name.replace(/\.pdf$/i, "");
 }
 
 async function openStored(id) {
@@ -1948,25 +2105,67 @@ function render() {
 // Wiring
 // ============================================================
 
-async function loadFile(file) {
-  if (!file) return;
-  showError("");
-  if (file.type && file.type !== "application/pdf") {
-    showError(`Not a PDF: ${file.name}`);
+/**
+ * Open what was picked. Several files at once become a set.
+ *
+ * Which is how a Sunday arrives: you select the week's songs together, from
+ * one folder, and they belong together. It is also the shape a shared Drive
+ * folder of dated subfolders will hand over, so the grouping is built before
+ * the thing that will fill it.
+ */
+async function loadFiles(files) {
+  const picked = [...(files ?? [])].filter(
+    (f) => !f.type || f.type === "application/pdf" || /\.pdf$/i.test(f.name)
+  );
+  if (!picked.length) {
+    if (files?.length) showError(`Not a PDF: ${files[0].name}`);
     return;
   }
+  showError("");
+
+  // In the order they are named, which is the order a set is usually numbered.
+  picked.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+
   try {
     setBusy(true);
-    const bytes = await file.arrayBuffer();
-    const id = await scoreId(bytes);
-    await rememberScore(id, bytes, file.name, 1);
-    const rec = await dbDo("readonly", (store) => store.get(id)).catch(() => null);
-    await openScore(bytes, file.name, rec?.page ?? 1, id);
+    const ids = [];
+    for (const file of picked) {
+      const bytes = await file.arrayBuffer();
+      const id = await scoreId(bytes);
+      // Only the first one becomes "the score to reopen"; the rest are stored.
+      await rememberScore(id, bytes, file.name, 1, { pointAt: ids.length === 0 });
+      ids.push({ id, bytes, name: file.name });
+    }
+
+    if (ids.length > 1) await rememberSet(todayName(), ids.map((x) => x.id));
+
+    const first = ids[0];
+    const rec = await dbDo("readonly", (store) => store.get(first.id)).catch(() => null);
+    await openScore(first.bytes, first.name, rec?.page ?? 1, first.id);
+
+    // The ones not opened have no picture yet, and the chooser is about to
+    // show them. Draw them in the background rather than making anyone wait.
+    for (const other of ids.slice(1)) thumbLater(other.id, other.bytes);
   } catch (err) {
     console.error("failed to open score:", err);
-    showError(`Could not open ${file.name} — ${err.message}`);
+    showError(`Could not open ${picked[0].name} — ${err.message}`);
   } finally {
     setBusy(false);
+  }
+}
+
+/** The day, as a set is named: "Nov 23" — whatever order this locale puts it in. */
+function todayName() {
+  return new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+async function thumbLater(id, bytes) {
+  try {
+    const doc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+    await storeThumb(id, doc);
+    doc.destroy();
+  } catch (err) {
+    console.warn("no thumbnail for a set member:", err.message);
   }
 }
 
@@ -2262,16 +2461,16 @@ el.installDismiss.addEventListener("click", () => {
   } catch {}
 });
 
-el.fileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
+el.fileInput.addEventListener("change", (e) => loadFiles(e.target.files));
 // The one on the empty screen goes away with the empty screen, and on a tablet
 // there is no dragging a file onto anything. Reopening the last score
 // automatically would otherwise mean never being able to open a different one.
-el.swapFileInput.addEventListener("change", (e) => loadFile(e.target.files && e.target.files[0]));
+el.swapFileInput.addEventListener("change", (e) => loadFiles(e.target.files));
 
 el.score.addEventListener("dragover", (e) => e.preventDefault());
 el.score.addEventListener("drop", (e) => {
   e.preventDefault();
-  loadFile(e.dataTransfer && e.dataTransfer.files[0]);
+  loadFiles(e.dataTransfer && e.dataTransfer.files);
 });
 
 // Named apart from the keyboard on purpose: a stray click on the tap zone and a

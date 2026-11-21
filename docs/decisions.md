@@ -462,3 +462,39 @@ a new worker is ready, so the reload could happen with the old one still in
 charge — the press would appear to do nothing and a second press would work.
 It now waits for the installing worker to settle, with a bound, because often
 there is no new worker at all.
+
+## A Sunday is one thing, and pruning by score count cut it in half
+
+Five remembered scores sounded like plenty until the real unit turned up. A
+worship set is four to six songs, so **one Sunday filled the list** and the
+next one pushed the previous one out a song at a time — leaving three quarters
+of last week sitting above this week, which is worse than keeping neither.
+
+So the store keeps **sets**: a date, and the order of the songs in it. The set
+record holds only the order; the scores stay where they are, keyed by content
+hash as before. That is what makes a song played two Sundays running one entry
+with one bookmark rather than two copies that disagree, and it is why a set can
+be dropped or restored without touching a score another set still points at.
+
+Pruning follows the unit. Four Sundays are kept whole, oldest dropped entirely,
+with six loose scores — ones opened on their own — beside them. A half-set is
+never a state the list can be in.
+
+Sets are made by **selecting several files at once**, which is how a Sunday
+already arrives: from one folder, numbered. They are sorted by name rather than
+by the order the file picker hands them over, because `03` after `01` is
+information the player put there. Only the first opens; the rest are stored and
+get their pictures in the background, so picking six songs is as quick as
+picking one. Two sets made on the same day get `(2)` after the name — a heading
+that reads the same as the one above it is not a heading.
+
+The name is a date because that is what a shared Drive folder of dated
+subfolders will hand over later. The grouping is being built before the thing
+that fills it, deliberately: the hard part of Drive integration is not fetching
+the files, it is having somewhere coherent to put them.
+
+Two of the new tests had to be taught to wait for the right thing rather than
+for a moment. A set's heading appears only once the last song is stored, and
+the songs that were not opened get their pictures later still — both were
+first written as a sleep, both passed, and both failed the moment the sleep was
+replaced by the condition it was standing in for.
