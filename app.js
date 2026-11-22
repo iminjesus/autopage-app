@@ -29,6 +29,24 @@ import * as pdfjsLib from "./vendor/pdf.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
+/**
+ * Google, for opening a Sunday out of a shared Drive folder.
+ *
+ * Both of these are public by design: they ship in this file, which is served
+ * to every browser that opens the app, and anyone can read them. What protects
+ * them is not secrecy but the authorised-origin list on the OAuth client and
+ * the HTTP-referrer restriction on the API key. There is no client *secret*
+ * here, and there must never be one — this is a browser-only client, and a
+ * secret in a static file is a secret given away.
+ *
+ * The consent screen is "AutoPage", and the only scope asked for is
+ * drive.file, which is non-sensitive and so needs no Google review.
+ */
+const GOOGLE_CLIENT_ID =
+  "239071426944-oilkavqvffm07q1tal7hncfuuhtv2g9f.apps.googleusercontent.com";
+const GOOGLE_API_KEY = ""; // Picker will not open until this is filled in
+const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
 // --- Tuning constants ---
 const MAX_CACHED_PAGES = 6;
 const MAX_DPR = 2; // a 3x phone triples raster cost for no gain on a score
