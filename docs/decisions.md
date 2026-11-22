@@ -498,3 +498,57 @@ for a moment. A set's heading appears only once the last song is stored, and
 the songs that were not opened get their pictures later still — both were
 first written as a sleep, both passed, and both failed the moment the sleep was
 replaced by the condition it was standing in for.
+
+## Drive, with the smallest scope that could possibly work
+
+The week's songs are already in a shared Drive folder in most churches, so the
+folder is the set and the only job is getting it onto the iPad. The question
+was what to ask Google for.
+
+**`drive.file`, and nothing else.** It covers the files somebody hands over in
+the picker, which is exactly what this app has any business reading. It is
+*non-sensitive*: no Google review, no annual security assessment, no waiting
+weeks before a church can use it. `drive.readonly` would make "pick the folder,
+get the songs" trivial and is restricted — it would put a security assessment
+between this and every church that wants it, to read files the player could
+have selected by hand.
+
+**No backend.** The token is obtained in the browser and held in memory. There
+is no server to deploy, nothing to keep running, and a token that is gone on
+reload is a token that cannot leak from a device left on a music stand. The
+client ID and API key ship in `app.js` because that is what they are for;
+what protects them is the authorised-origin list and a referrer restriction,
+not secrecy. There is no client secret, and a browser-only client must not
+have one.
+
+Whether **picking a folder** hands over what is inside it is not something
+`drive.file`'s documentation answers either way, and everyone who has tried
+reports that it does not. It is offered anyway: the cost of being wrong is one
+refused listing and a sentence telling the player to go into the folder and
+select the songs, and the cost of being right is a Sunday in one tap. A picked
+folder names the set whether or not it will list itself, so even the refusal
+leaves something useful behind.
+
+The scores are **downloaded once and then belong to the device** — the same
+store as a score opened off the iPad. A service is the worst possible time to
+discover that the songs live in the cloud.
+
+## The worker was answering for Google too
+
+The service worker took every GET the page made. That was harmless while the
+page only ever asked for its own files, and stopped being harmless the moment
+it could talk to Drive: a signed-in download is a 200 with `ok` true, so it
+would have been copied into the shell cache — somebody else's private score
+sitting in a cache that outlives the sign-in, and a cache growing by a megabyte
+a song. It now answers for its own origin only. Sign-in scripts and API calls
+want the network every time and want nothing remembered, which is precisely
+what being left alone gives them.
+
+The sign-in itself cannot be tested here — it needs a real account in a real
+browser. So Google's two scripts are served as stubs and the Drive REST calls
+are answered by the test, which leaves everything on this side real: the
+scripts are genuinely loaded on demand, and the picker's answer genuinely goes
+through folder listing, download, hashing, the store and the chooser. What that
+buys is the part that is invisible when it is wrong — that a Sunday from Drive
+lands as a *set*, named after its folder, and that **nothing is asked of Google
+until somebody asks for Drive**, which is the offline promise in one assertion.

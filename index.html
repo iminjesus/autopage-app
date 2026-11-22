@@ -40,8 +40,13 @@
             Open PDF
             <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden />
           </label>
+          <button class="file-btn file-btn-quiet" id="driveBtn">Google Drive</button>
           <button class="file-btn file-btn-quiet" id="startCalibrateBtn">Calibrate</button>
         </div>
+
+        <!-- Six songs off a church wifi is not instant, and a bar that sweeps
+             without saying anything looks the same as a bar that is stuck. -->
+        <p class="start-note drive-status" id="driveStatus" hidden></p>
 
         <!-- The last few scores, as first pages. Filled by the app. -->
         <div class="recent" id="recent" hidden></div>
@@ -127,6 +132,10 @@
           Open PDF
           <input type="file" id="swapFileInput" accept="application/pdf,.pdf" multiple hidden />
         </label>
+
+        <!-- The week's songs usually live in a shared folder rather than on
+             the iPad, so this is a first-class way in, not a convenience. -->
+        <button class="btn btn-secondary btn-block" id="panelDriveBtn">Open from Google Drive</button>
 
         <!-- And again here, because a remembered score opens straight away
              and the first screen is not seen again. -->

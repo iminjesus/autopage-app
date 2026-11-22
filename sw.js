@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v30";
+const CACHE = "autopage-v31";
 
 // The face model lives in its own cache, and that name never changes.
 //
@@ -126,7 +126,20 @@ async function respond(request) {
   ]);
 }
 
+/**
+ * Only this app's own files.
+ *
+ * The worker used to answer every GET the page made, which was harmless while
+ * the page only ever asked for its own files. It stopped being harmless the
+ * moment it could talk to Google: a signed-in Drive download is a 200 with
+ * `ok` true, so it would have been copied into the shell cache — somebody
+ * else's private score sitting in a cache that outlives the sign-in, and a
+ * cache that grows by a megabyte per song. Sign-in scripts and API calls want
+ * the network every time and want nothing remembered, which is exactly what
+ * leaving them alone gives them.
+ */
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(respond(e.request));
 });

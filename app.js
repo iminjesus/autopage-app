@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-21e sets";
+const BUILD = "2026-11-22a drive";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -44,7 +44,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
  */
 const GOOGLE_CLIENT_ID =
   "239071426944-oilkavqvffm07q1tal7hncfuuhtv2g9f.apps.googleusercontent.com";
-const GOOGLE_API_KEY = ""; // Picker will not open until this is filled in
+const GOOGLE_API_KEY = "AIzaSyBtVu_Eqc0GtO2B9kbtOwLlN8I4YpW1ZPY";
 const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 // --- Tuning constants ---
@@ -74,6 +74,7 @@ for (const id of [
   "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
+  "driveBtn", "panelDriveBtn", "driveStatus",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -2091,6 +2092,17 @@ function showError(message) {
 }
 
 /**
+ * What is happening, while it is happening.
+ *
+ * Six songs off a church wifi is not instant, and a bar that sweeps without
+ * saying anything is indistinguishable from a bar that is stuck.
+ */
+function setProgress(message) {
+  el.driveStatus.textContent = message;
+  el.driveStatus.hidden = !message;
+}
+
+/**
  * Whether the screen is actually being kept awake, in words.
  *
  * It was in the diagnostics line and nowhere else, which is where things go to
@@ -2140,22 +2152,44 @@ async function loadFiles(files) {
     return;
   }
   showError("");
+  await adoptSet(
+    picked.map((file) => ({ name: file.name, bytes: () => file.arrayBuffer() })),
+    todayName()
+  );
+}
+
+/**
+ * Take a pile of scores and make them a set.
+ *
+ * Where they came from is the only thing that differs between picking files off
+ * the device and pulling a Sunday out of a shared Drive folder, so everything
+ * after "here are some names and some bytes" happens once, here. Each item
+ * carries a `bytes()` rather than its bytes, because the Drive path has not
+ * downloaded anything yet when it calls this and should not download a song
+ * nobody can see yet.
+ */
+async function adoptSet(items, setName) {
+  if (!items.length) return;
 
   // In the order they are named, which is the order a set is usually numbered.
-  picked.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }));
+  const sorted = [...items].sort((x, y) =>
+    x.name.localeCompare(y.name, undefined, { numeric: true })
+  );
 
   try {
     setBusy(true);
     const ids = [];
-    for (const file of picked) {
-      const bytes = await file.arrayBuffer();
+    for (const item of sorted) {
+      if (sorted.length > 1) setProgress(`Opening ${ids.length + 1} of ${sorted.length}…`);
+      const bytes = await item.bytes();
       const id = await scoreId(bytes);
       // Only the first one becomes "the score to reopen"; the rest are stored.
-      await rememberScore(id, bytes, file.name, 1, { pointAt: ids.length === 0 });
-      ids.push({ id, bytes, name: file.name });
+      await rememberScore(id, bytes, item.name, 1, { pointAt: ids.length === 0 });
+      ids.push({ id, bytes, name: item.name });
     }
+    setProgress("");
 
-    if (ids.length > 1) await rememberSet(todayName(), ids.map((x) => x.id));
+    if (ids.length > 1) await rememberSet(setName, ids.map((x) => x.id));
 
     const first = ids[0];
     const rec = await dbDo("readonly", (store) => store.get(first.id)).catch(() => null);
@@ -2166,9 +2200,215 @@ async function loadFiles(files) {
     for (const other of ids.slice(1)) thumbLater(other.id, other.bytes);
   } catch (err) {
     console.error("failed to open score:", err);
-    showError(`Could not open ${picked[0].name} — ${err.message}`);
+    showError(`Could not open ${sorted[0].name} — ${err.message}`);
   } finally {
+    setProgress("");
     setBusy(false);
+  }
+}
+
+// ============================================================
+// Google Drive — a Sunday out of a shared folder
+//
+// Churches already keep the week's songs in a dated folder that somebody
+// shares with the team. That folder *is* the set, so the job here is only to
+// get it onto the device. Once it is, nothing about playing from it touches
+// the network again: the scores go into the same store as a score opened off
+// the device, so a wifi that dies during the service costs nothing.
+//
+// The scope asked for is drive.file and only drive.file. It is non-sensitive —
+// no Google review, no security assessment — and it is the honest one: this
+// app has no business reading a drive, only the songs somebody handed it.
+// ============================================================
+
+// Both values ship in this file and are meant to. See the note at the top.
+const GOOGLE_APP_ID = GOOGLE_CLIENT_ID.split("-")[0];
+const GSI_SRC = "https://accounts.google.com/gsi/client";
+const GAPI_SRC = "https://apis.google.com/js/api.js";
+const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
+
+/**
+ * The token lives in memory and nowhere else.
+ *
+ * Not in localStorage, not in the score store: a page reload is a cheap place
+ * to ask again, and a token on disk is a token that outlives the person who
+ * meant to grant it. An hour is what Google issues; fifty minutes is when this
+ * stops trusting it, so a download never dies halfway through a set.
+ */
+let driveToken = null;
+let driveTokenUntil = 0;
+const TOKEN_GOOD_FOR_MS = 50 * 60 * 1000;
+
+const scriptsLoaded = new Map();
+
+/**
+ * Load Google's scripts only when somebody asks for Drive.
+ *
+ * Never at startup. The whole app is built to open a score with no network at
+ * all, and two scripts from a third party in the critical path would quietly
+ * undo that — on a dead wifi they do not fail, they hang.
+ */
+function loadScript(src) {
+  if (!scriptsLoaded.has(src)) {
+    scriptsLoaded.set(
+      src,
+      new Promise((resolve, reject) => {
+        const tag = document.createElement("script");
+        tag.src = src;
+        tag.async = true;
+        tag.onload = resolve;
+        tag.onerror = () => {
+          scriptsLoaded.delete(src); // so a later try is allowed to work
+          reject(new Error("could not reach Google"));
+        };
+        document.head.append(tag);
+      })
+    );
+  }
+  return scriptsLoaded.get(src);
+}
+
+async function googleReady() {
+  await Promise.all([loadScript(GSI_SRC), loadScript(GAPI_SRC)]);
+  if (!window.google?.picker) {
+    await new Promise((resolve, reject) =>
+      window.gapi.load("picker", { callback: resolve, onerror: reject })
+    );
+  }
+}
+
+/** Sign in, or reuse the sign-in from a few minutes ago. */
+function driveSignIn() {
+  if (driveToken && Date.now() < driveTokenUntil) return Promise.resolve(driveToken);
+  return new Promise((resolve, reject) => {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: GOOGLE_SCOPE,
+      callback: (res) => {
+        if (!res?.access_token) return reject(new Error(res?.error ?? "no access"));
+        driveToken = res.access_token;
+        driveTokenUntil = Date.now() + TOKEN_GOOD_FOR_MS;
+        resolve(driveToken);
+      },
+      error_callback: (err) => reject(new Error(err?.type ?? "sign-in cancelled")),
+    });
+    client.requestAccessToken();
+  });
+}
+
+const isFolder = (doc) => doc.mimeType === "application/vnd.google-apps.folder";
+const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.name ?? "");
+
+/**
+ * Let them pick, with folders selectable as well as enterable.
+ *
+ * Whether selecting a folder actually hands over what is inside it is not
+ * something drive.file's documentation answers, and the answer that comes back
+ * from everyone who has tried is "no". It is offered anyway because the cost of
+ * being wrong in that direction is one failed listing and a sentence telling
+ * them to go into the folder and select the songs — and if it does work, a
+ * Sunday is one tap.
+ */
+function drivePicker(token) {
+  return new Promise((resolve) => {
+    const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+      .setMimeTypes("application/pdf")
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(true);
+
+    new window.google.picker.PickerBuilder()
+      .setDeveloperKey(GOOGLE_API_KEY)
+      .setOAuthToken(token)
+      .setAppId(GOOGLE_APP_ID)
+      .addView(view)
+      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setCallback((data) => {
+        const { Action } = window.google.picker;
+        if (data.action === Action.PICKED) resolve(data.docs ?? []);
+        else if (data.action === Action.CANCEL) resolve([]);
+      })
+      .build()
+      .setVisible(true);
+  });
+}
+
+/** The PDFs inside a picked folder, or nothing if the scope will not show them. */
+async function folderSongs(folderId, token) {
+  const q = `'${folderId}' in parents and mimeType = 'application/pdf' and trashed = false`;
+  const url =
+    `${DRIVE_API}?q=${encodeURIComponent(q)}` +
+    "&fields=files(id,name)&orderBy=name&pageSize=200" +
+    "&supportsAllDrives=true&includeItemsFromAllDrives=true";
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return []; // the expected answer under drive.file
+    return (await res.json()).files ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function driveDownload(fileId, token) {
+  const res = await fetch(
+    `${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!res.ok) throw new Error(`Drive refused that file (${res.status})`);
+  return res.arrayBuffer();
+}
+
+async function openFromDrive() {
+  if (!GOOGLE_API_KEY) {
+    showError("Google Drive is not configured in this build.");
+    return;
+  }
+  showError("");
+  try {
+    setProgress("Connecting to Google…");
+    await googleReady();
+    const token = await driveSignIn();
+
+    setProgress("");
+    const docs = await drivePicker(token);
+    if (!docs.length) return; // cancelled, which is not a failure
+
+    // A picked folder names the set, whether or not it will list its contents.
+    const folder = docs.find(isFolder);
+    const songs = [...docs.filter((d) => !isFolder(d) && isPdf(d))];
+    for (const dir of docs.filter(isFolder)) {
+      setProgress(`Reading ${dir.name}…`);
+      songs.push(...(await folderSongs(dir.id, token)));
+    }
+
+    // Two folders can hold the same song; one entry is enough.
+    const seen = new Set();
+    const unique = songs.filter((s) => !seen.has(s.id) && seen.add(s.id));
+
+    if (!unique.length) {
+      setProgress("");
+      showError(
+        folder
+          ? `Google would not list what is inside ${folder.name}. Open the folder and select the songs themselves.`
+          : "Nothing in that selection was a PDF."
+      );
+      return;
+    }
+
+    await adoptSet(
+      unique.map((song) => ({
+        name: song.name,
+        bytes: () => driveDownload(song.id, token),
+      })),
+      folder?.name ?? todayName()
+    );
+  } catch (err) {
+    console.warn("drive:", err);
+    setProgress("");
+    showError(
+      navigator.onLine
+        ? `Could not open from Drive — ${err.message}`
+        : "Opening from Drive needs a network. Scores already on the device still work."
+    );
   }
 }
 
@@ -2306,6 +2546,8 @@ async function loadSample() {
 }
 
 el.sampleBtn.addEventListener("click", loadSample);
+el.driveBtn.addEventListener("click", openFromDrive);
+el.panelDriveBtn.addEventListener("click", openFromDrive);
 
 // --- Installing ---
 //

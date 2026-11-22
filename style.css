@@ -877,3 +877,8 @@ a.btn-block {
   line-height: 1.5;
   margin: 12px 0 0;
 }
+
+/* What Drive is doing, in the quiet-note voice the screen already uses. */
+.drive-status {
+  color: var(--accent);
+}

@@ -112,6 +112,23 @@ bookmark. A score is identified by its contents rather than its filename: the
 same piece arriving as "score.pdf" from three different places is one entry,
 not three that disagree.
 
+### Opening a Sunday out of Google Drive
+
+**Google Drive** on the first screen, or **Open from Google Drive** in the
+Setup panel. Sign in, select the week's songs, and they arrive as one set. If
+the folder itself can be selected it names the set; otherwise the set is named
+for the day and can be opened from a folder's contents just the same.
+
+The only permission asked for is **`drive.file`** — the songs you hand over in
+the picker, and nothing else in the drive. It is a non-sensitive scope, so
+there is no Google review and no security assessment behind it.
+
+Once the songs are downloaded they belong to the device: they go into the same
+store as a score opened off the iPad, so **a wifi that dies mid-service costs
+nothing**. Google's scripts are only fetched when somebody asks for Drive, and
+never at startup, so the offline path is untouched by any of this. The sign-in
+token is held in memory and is gone on reload.
+
 Opening it on a laptop shows a QR code instead: point the iPad's camera at it
 and carry on there.
 
