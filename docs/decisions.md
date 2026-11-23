@@ -552,3 +552,34 @@ through folder listing, download, hashing, the store and the chooser. What that
 buys is the part that is invisible when it is wrong — that a Sunday from Drive
 lands as a *set*, named after its folder, and that **nothing is asked of Google
 until somebody asks for Drive**, which is the offline promise in one assertion.
+
+## One missing button took the whole app with it
+
+The page stopped turning. Nothing in the gesture had changed and every gesture
+test passed, which was the clue: the gesture code was never reached. The
+bindings ran as `el.thing.addEventListener(...)` straight down the file, so an
+element the page did not have threw at the top level and took the module with
+it — `window.__autopage` was never defined, and the screen sat there with no
+error on it.
+
+What produces a page without an element is not exotic. GitHub Pages sends a
+ten-minute `max-age` and there is no build step here to fingerprint filenames
+with, so **a browser tab opened just after a deploy can hold the old
+index.html and the new app.js together**. Adding two buttons was enough.
+
+Bindings go through a helper that skips what is not there, so a button the page
+does not have costs you that button. The app also now says `This page is out of
+date — reload to finish updating.` rather than carrying on with something
+silently absent — the thing somebody is reaching for is missing either way, and
+one reload fixes it.
+
+The regression test builds the stale page by **deleting elements from the real
+index.html**, not by checking out an old commit, so it keeps testing the live
+file as it grows. It was put against the unfixed code first, where the app did
+not boot at all.
+
+A second thing the calendar found: the Drive test named its fake folder
+"Nov 23" and the day rolled over to the 23rd. A folder called "Nov 23" is
+exactly what a church would have, and it is also what the app calls a set it
+had to name itself — so for one day a year the test would have been checking
+that it had found the wrong group. The fixtures are named for feasts now.

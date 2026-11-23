@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-22a drive";
+const BUILD = "2026-11-23a stale-guard";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -80,6 +80,30 @@ for (const id of [
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
   "modeField", "modeTilt", "modeWink", "gestureHelp", "setupStatus",
 ]) el[id] = document.getElementById(id);
+
+/**
+ * What this page did not have.
+ *
+ * Almost always one thing: an index.html a version behind the app.js beside
+ * it. GitHub Pages sends a ten-minute max-age and there is no build step to
+ * fingerprint filenames with, so a browser tab opened just after a deploy can
+ * genuinely hold the old page and the new script together.
+ */
+const missingEls = Object.keys(el).filter((id) => !el[id]);
+
+/**
+ * Bind a listener, or carry on without it.
+ *
+ * This used to be `el.thing.addEventListener(...)` straight down the file, so
+ * a single element the page did not have threw at the top level and took the
+ * whole module with it — the gesture, the page turns, the chooser, everything,
+ * because none of it had been defined yet. A button that is missing should
+ * cost you that button.
+ */
+function on(id, type, handler, opts) {
+  if (!el[id]) return;
+  el[id].addEventListener(type, handler, opts);
+}
 
 /**
  * Wall clock, in seconds. The arming window tolerates several seconds of error
@@ -2098,6 +2122,7 @@ function showError(message) {
  * saying anything is indistinguishable from a bar that is stuck.
  */
 function setProgress(message) {
+  if (!el.driveStatus) return;
   el.driveStatus.textContent = message;
   el.driveStatus.hidden = !message;
 }
@@ -2503,7 +2528,7 @@ async function showOfflineState() {
   el.offlineBtn.hidden = ready;
 }
 
-el.offlineBtn.addEventListener("click", async () => {
+on("offlineBtn", "click", async () => {
   el.offlineBtn.disabled = true;
   el.offlineBtn.textContent = "Downloading…";
   await prefetchModel((done, total) => {
@@ -2545,9 +2570,9 @@ async function loadSample() {
   }
 }
 
-el.sampleBtn.addEventListener("click", loadSample);
-el.driveBtn.addEventListener("click", openFromDrive);
-el.panelDriveBtn.addEventListener("click", openFromDrive);
+on("sampleBtn", "click", loadSample);
+on("driveBtn", "click", openFromDrive);
+on("panelDriveBtn", "click", openFromDrive);
 
 // --- Installing ---
 //
@@ -2640,7 +2665,7 @@ function showPanelInstall() {
   el.panelInstallBtn.hidden = false;
 }
 
-el.panelInstallBtn.addEventListener("click", async () => {
+on("panelInstallBtn", "click", async () => {
   if (installPrompt) {
     installPrompt.prompt();
     await installPrompt.userChoice;
@@ -2686,7 +2711,7 @@ async function showQr() {
   }
 }
 
-el.installBtn.addEventListener("click", async () => {
+on("installBtn", "click", async () => {
   if (!installPrompt) return;
   installPrompt.prompt();
   await installPrompt.userChoice;
@@ -2694,7 +2719,7 @@ el.installBtn.addEventListener("click", async () => {
   el.installHint.hidden = true;
 });
 
-el.shareBtn.addEventListener("click", async () => {
+on("shareBtn", "click", async () => {
   const url = location.href;
   try {
     await navigator.share({
@@ -2714,21 +2739,21 @@ el.shareBtn.addEventListener("click", async () => {
   }
 });
 
-el.installDismiss.addEventListener("click", () => {
+on("installDismiss", "click", () => {
   el.installHint.hidden = true;
   try {
     localStorage.setItem(INSTALL_DISMISSED, "1");
   } catch {}
 });
 
-el.fileInput.addEventListener("change", (e) => loadFiles(e.target.files));
+on("fileInput", "change", (e) => loadFiles(e.target.files));
 // The one on the empty screen goes away with the empty screen, and on a tablet
 // there is no dragging a file onto anything. Reopening the last score
 // automatically would otherwise mean never being able to open a different one.
-el.swapFileInput.addEventListener("change", (e) => loadFiles(e.target.files));
+on("swapFileInput", "change", (e) => loadFiles(e.target.files));
 
-el.score.addEventListener("dragover", (e) => e.preventDefault());
-el.score.addEventListener("drop", (e) => {
+on("score", "dragover", (e) => e.preventDefault());
+on("score", "drop", (e) => {
   e.preventDefault();
   loadFiles(e.dataTransfer && e.dataTransfer.files);
 });
@@ -2736,11 +2761,11 @@ el.score.addEventListener("drop", (e) => {
 // Named apart from the keyboard on purpose: a stray click on the tap zone and a
 // stray keypress look identical in a log that calls both "manual", and telling
 // them apart is the whole point of the log.
-el.nextBtn.addEventListener("click", () => {
+on("nextBtn", "click", () => {
   state.turnedBy = "tap zone";
   nextPage();
 });
-el.prevBtn.addEventListener("click", () => {
+on("prevBtn", "click", () => {
   state.turnedBy = "tap zone";
   prevPage();
 });
@@ -2767,10 +2792,10 @@ async function beginWatching() {
   render();
 }
 
-el.allowBtn.addEventListener("click", beginWatching);
+on("allowBtn", "click", beginWatching);
 
-el.calibrateBtn.addEventListener("click", startCalibration);
-el.cancelCalibBtn.addEventListener("click", startCalibration); // a second press cancels
+on("calibrateBtn", "click", startCalibration);
+on("cancelCalibBtn", "click", startCalibration); // a second press cancels
 
 /**
  * Calibrate before there is a score, from the first screen.
@@ -2780,7 +2805,7 @@ el.cancelCalibBtn.addEventListener("click", startCalibration); // a second press
  * gesture has already let you down. The camera is deferred until a score opens
  * now, so this has to start it first.
  */
-el.startCalibrateBtn.addEventListener("click", async () => {
+on("startCalibrateBtn", "click", async () => {
   if (!landmarker) {
     el.startCalibrateBtn.disabled = true;
     el.startCalibrateBtn.textContent = "Starting camera…";
@@ -2810,14 +2835,14 @@ function onModeChange() {
       : "Not calibrated for this gesture.";
 }
 
-el.swapInput.addEventListener("change", () => {
+on("swapInput", "change", () => {
   swapEyes = el.swapInput.checked;
   try {
     localStorage.setItem(SWAP_KEY, swapEyes ? "1" : "0");
   } catch {}
 });
 
-el.holdInput.addEventListener("change", () => {
+on("holdInput", "change", () => {
   gestureHoldMs = Math.min(1500, Math.max(100, Number(el.holdInput.value) || 500));
   el.holdInput.value = String(gestureHoldMs);
   try {
@@ -2842,7 +2867,7 @@ function collapseSetup(collapsed) {
  * script itself, which the browser re-checks on its own schedule rather than on
  * demand, so that is asked for explicitly first.
  */
-el.reloadBtn.addEventListener("click", async () => {
+on("reloadBtn", "click", async () => {
   el.reloadBtn.disabled = true;
   el.reloadBtn.textContent = "Checking…";
   try {
@@ -2873,7 +2898,7 @@ function workerReady(worker, ms) {
   });
 }
 
-el.setupToggle.addEventListener("click", () => {
+on("setupToggle", "click", () => {
   collapseSetup(el.setupToggle.getAttribute("aria-expanded") === "true");
 });
 
@@ -2943,6 +2968,18 @@ restoreLastScore().then(async (restored) => {
     );
   }
 });
+/**
+ * Say so, when the page and the script disagree.
+ *
+ * Carrying on silently with a button missing is better than dying, but it is
+ * not good: the thing somebody is reaching for is simply not there, and
+ * nothing explains why. One reload fixes it, so say that.
+ */
+if (missingEls.length) {
+  console.warn("this page is older than the app.js beside it; missing:", missingEls.join(", "));
+  showError("This page is out of date — reload to finish updating.");
+}
+
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
@@ -2954,10 +2991,11 @@ window.__autopage = {
   processFrame,
   setMode(mode) {
     gestureMode = mode === "wink" ? "wink" : "tilt";
-    el.modeTilt.checked = gestureMode === "tilt";
-    el.modeWink.checked = gestureMode === "wink";
+    if (el.modeTilt) el.modeTilt.checked = gestureMode === "tilt";
+    if (el.modeWink) el.modeWink.checked = gestureMode === "wink";
     describeGesture();
   },
+  get missingEls() { return missingEls; },
   get mode() { return gestureMode; },
   get ready() { return landmarker !== null; },
   get threshold() { return asymThreshold(); },

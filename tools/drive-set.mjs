@@ -140,6 +140,11 @@ const askForDrive = async () => {
 const pdf = (id) => ({ id, name: LIBRARY[id].name, mimeType: "application/pdf" });
 const folder = (id, name) => ({ id, name, mimeType: "application/vnd.google-apps.folder" });
 
+// Folder names here are deliberately not dates. A folder called "Nov 23" is
+// exactly what a church would have, and it is also what the app calls a set it
+// had to name itself — so on one day a year the test would have been checking
+// that it had found the wrong group.
+
 await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
 
 // --- The offline promise is not quietly broken -----------------------------
@@ -189,15 +194,15 @@ check(hits.filter((h) => h.startsWith("get:")).length === storedNow,
 
 // --- Picking the folder, when Drive allows it -------------------------------
 listingAnswer = { status: 200, files: ["f-doxo", "f-king"] };
-await answer([folder("dir-1123", "Nov 23")]);
+await answer([folder("dir-1123", "Christmas Eve")]);
 await askForDrive();
 await p.waitForFunction(
-  () => [...document.querySelectorAll("#recent > .recent-head")].some((h) => h.firstChild.textContent === "Nov 23"),
+  () => [...document.querySelectorAll("#recent > .recent-head")].some((h) => h.firstChild.textContent === "Christmas Eve"),
   null, { timeout: 30000 }
 );
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
 g = await groups();
-const sunday = g.find((x) => x.name === "Nov 23");
+const sunday = g.find((x) => x.name === "Christmas Eve");
 check(sunday?.scores.length === 2, `a picked folder becomes a set of its songs (${sunday?.scores.length ?? 0})`);
 check(sunday.scores.join(" | ") === "03 King of Kings | 04 Doxology",
   `named after the folder, sorted by song: ${sunday.scores.join(" | ")}`);
@@ -214,15 +219,15 @@ check(new Set(tiles).size < tiles.length,
 // The likely case, and the one that must not look like a crash: drive.file
 // grants the folder, not what is in it. Say what to do instead.
 listingAnswer = { status: 403, files: [] };
-await answer([folder("dir-locked", "Nov 30")]);
+await answer([folder("dir-locked", "Epiphany")]);
 await askForDrive();
 await p.waitForFunction(() => {
   const e = document.getElementById("scoreError");
-  return !e.hidden && e.textContent.includes("Nov 30");
+  return !e.hidden && e.textContent.includes("Epiphany");
 }, null, { timeout: 30000 });
 const said = await errorText();
 check(said.includes("Open the folder"), `it says what to do instead: "${said}"`);
-check(!(await groups()).some((x) => x.name === "Nov 30"), "and no empty Sunday is left behind");
+check(!(await groups()).some((x) => x.name === "Epiphany"), "and no empty Sunday is left behind");
 
 // Cancelling is not a failure.
 await p.evaluate(() => { window.__answer = { action: "cancel" }; });
