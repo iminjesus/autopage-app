@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23j drive-multi";
+const BUILD = "2026-11-23k drive-order";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2594,13 +2594,19 @@ function drivePicker(token, openAt, { choosingFolder = true } = {}) {
       .setSelectFolderEnabled(choosingFolder);
     if (openAt) view.setParent(openAt);
 
+    // Features before views, which is the order Google's own sample uses.
+    // Builder calls ought not to care, and this one may well not — but
+    // multi-select is refusing to appear on a phone and the documented order
+    // is a cheaper thing to match than it is to rule out.
     new window.google.picker.PickerBuilder()
+      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
       .setDeveloperKey(GOOGLE_API_KEY)
       .setOAuthToken(token)
       .setAppId(GOOGLE_APP_ID)
       .addView(view)
-      .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-      .setTitle(choosingFolder ? "Pick the Sunday's folder" : "Select the songs")
+      .setTitle(
+        choosingFolder ? "Pick the Sunday's folder" : "Select the songs — tap each one"
+      )
       .setCallback((data) => {
         const { Action } = window.google.picker;
         if (data.action === Action.PICKED) resolve(data.docs ?? []);

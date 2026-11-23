@@ -346,10 +346,12 @@ await answerEach([
   [pdf("f-build", "dir-dec13")],     // and the picker only gives up one
 ]);
 await askForDrive();
-await p.waitForFunction(() => {
-  const t = document.getElementById("driveToast");
-  return t && !t.hidden && t.textContent.includes("Dec 13");
-}, null, { timeout: 30000 });
+// Wait for the offer, not for the folder's name: "Opening Dec 13…" passes
+// through the same toast on the way in, and the set is named after the folder,
+// so matching the name matched a moment that had not finished happening.
+await p.waitForFunction(
+  () => document.querySelector("#driveToast .toast-action"), null, { timeout: 30000 }
+);
 check((await p.locator("#driveToast").textContent()).includes("1 song"),
   `one song is counted but is not yet a Sunday: "${await p.locator("#driveToast").textContent()}"`);
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
