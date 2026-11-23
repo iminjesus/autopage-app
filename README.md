@@ -140,6 +140,11 @@ about the publishing status, not about the scope.
 Setup panel. Sign in, **go into the Sunday's folder and select the songs**, and
 they arrive as one set, named after the folder they came out of.
 
+After the first time, the picker **opens inside the folder the Sundays live
+in**, so next week's is already on screen rather than somewhere down a shared
+drive. It is checked before it is used: a folder that has been moved or
+unshared is forgotten rather than opening the picker on an empty view.
+
 Folders can be opened but not selected, on purpose. Under `drive.file` Google
 hands over a selected folder and nothing inside it — tried against a real
 shared drive, and refused — so offering the choice would only let somebody pick

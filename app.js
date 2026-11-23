@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23f drive-songs";
+const BUILD = "2026-11-23g drive-home";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2507,12 +2507,13 @@ const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.
  * cannot work is worse than not offering it — the player picks the folder,
  * which is the obvious thing to do, and gets an apology.
  */
-function drivePicker(token) {
+function drivePicker(token, openAt) {
   return new Promise((resolve) => {
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
       .setMimeTypes("application/pdf")
       .setIncludeFolders(true)
       .setSelectFolderEnabled(false);
+    if (openAt) view.setParent(openAt);
 
     new window.google.picker.PickerBuilder()
       .setDeveloperKey(GOOGLE_API_KEY)
@@ -2531,28 +2532,72 @@ function drivePicker(token) {
   });
 }
 
+const DRIVE_ROOT_KEY = "autopage-drive-root";
+
 /**
- * What the folder these songs came out of is called.
+ * What a folder is called, and what it sits inside.
  *
- * Worth one request: the folders are named for the Sunday they belong to, and
- * that name is the whole point of a set. drive.file may well refuse to say —
- * it granted the files, not their parent — in which case the set is named for
- * the day instead and nothing is lost but a nicer label.
+ * One request, and worth it twice over. The name is the point of a set —
+ * these churches name the folder for the Sunday it belongs to, often a date
+ * still in the future, which beats anything the app could invent. And the
+ * folder it sits inside is where *next* Sunday will appear, which is what
+ * saves hunting for it every week.
+ *
+ * drive.file may refuse both — it granted the files, not their parent. Then
+ * the day names the set, the picker opens where it always did, and nothing is
+ * lost but convenience.
  */
-async function driveFolderName(docs, token) {
-  const parents = new Set(docs.map((d) => d.parentId).filter(Boolean));
-  if (parents.size !== 1) return null; // songs from two places are not a Sunday
-  const id = [...parents][0];
+async function driveFolderInfo(id, token, fields = "name,parents") {
+  if (!id) return null;
   try {
     const res = await fetch(
-      `${DRIVE_API}/${encodeURIComponent(id)}?fields=name&supportsAllDrives=true`,
+      `${DRIVE_API}/${encodeURIComponent(id)}?fields=${fields}&supportsAllDrives=true`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) return null;
-    return (await res.json()).name ?? null;
+    return await res.json();
   } catch {
     return null;
   }
+}
+
+/** The one folder these songs all came out of, if they came out of one. */
+function sharedParent(docs) {
+  const parents = new Set(docs.map((d) => d.parentId).filter(Boolean));
+  return parents.size === 1 ? [...parents][0] : null; // two places is not a Sunday
+}
+
+const remembered = (key) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const remember = (key, value) => {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    /* a private window is not a reason to fail */
+  }
+};
+
+/**
+ * Where to open the picker: inside the folder the Sundays live in.
+ *
+ * Checked before it is used rather than trusted, because a folder that has
+ * been moved, renamed away or unshared would otherwise open the picker on an
+ * empty view with no way to tell why. If it is no longer reachable it is
+ * forgotten and the picker opens where it always did.
+ */
+async function drivePickerRoot(token) {
+  const saved = remembered(DRIVE_ROOT_KEY);
+  if (!saved) return null;
+  const still = await driveFolderInfo(saved, token, "id");
+  if (still?.id) return saved;
+  remember(DRIVE_ROOT_KEY, null);
+  return null;
 }
 
 /** The PDFs inside a picked folder, or nothing if the scope will not show them. */
@@ -2598,8 +2643,9 @@ async function openFromDrive() {
     // and the second tap goes straight through.
     const token = await driveSignIn();
 
+    const openAt = await drivePickerRoot(token);
     setProgress("");
-    const docs = await drivePicker(token);
+    const docs = await drivePicker(token, openAt);
     if (!docs.length) return; // cancelled, which is not a failure
 
     // A picked folder names the set, whether or not it will list its contents.
@@ -2624,9 +2670,12 @@ async function openFromDrive() {
     }
 
     // The folder they came out of names the set when Google will say what it
-    // is called; otherwise the day does.
+    // is called; otherwise the day does. The same answer says where next
+    // Sunday's folder will turn up, so the picker can start there next time.
     setProgress("Naming the set…");
-    const named = folder?.name ?? (await driveFolderName(docs, token)) ?? todayName();
+    const info = await driveFolderInfo(sharedParent(docs), token);
+    if (info?.parents?.[0]) remember(DRIVE_ROOT_KEY, info.parents[0]);
+    const named = folder?.name ?? info?.name ?? todayName();
 
     await adoptSet(
       unique.map((song) => ({

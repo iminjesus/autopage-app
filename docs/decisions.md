@@ -694,3 +694,25 @@ the day names the set and nothing is lost but a nicer label.
 
 One request, not a listing. The difference matters: a listing is the thing that
 is refused, a name is the thing that usually is not.
+
+## The annoying part is the hunt, not the tapping
+
+One tap on a folder would need `drive.readonly`, which is restricted: Google
+review plus a third-party security assessment, renewed yearly. That is a real
+bill and several weeks for a feature that saves five taps, so the answer for
+now is to make the five taps cheap rather than to buy them away.
+
+Selecting five songs is not what makes it tedious every week — finding the
+folder is. So the request that asks what the Sunday's folder is called also
+asks what it sits inside, and that is where next week's folder will appear.
+The picker opens there from then on.
+
+It is checked before it is used, not trusted. A folder that has been moved,
+renamed away or unshared would otherwise open the picker on an empty view with
+nothing to explain it; instead it is forgotten and the picker opens where it
+always did. One cheap request to avoid a confusing dead end is a good trade,
+and it is the same request shape that already works.
+
+If the church would rather merge the Sunday into one PDF, that path needs no
+permission at all and never did — the app has always treated a multi-page PDF
+as what it is.

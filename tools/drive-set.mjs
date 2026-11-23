@@ -51,6 +51,7 @@ const GAPI_STUB = `
         this.setMimeTypes = () => this;
         this.setIncludeFolders = () => this;
         this.setSelectFolderEnabled = (on) => { window.__folderPicking = on; return this; };
+        this.setParent = (id) => { window.__openedAt = id; return this; };
       },
       PickerBuilder: function () {
         let cb;
@@ -81,7 +82,9 @@ const check = (ok, line) => { if (!ok) bad++; console.log(`${ok ? "ok  " : "FAIL
 // Google's side of the wire, in full.
 const hits = [];
 let listingAnswer = { status: 200, files: [] };
-let folderNameAnswer = null; // what Drive says the parent folder is called
+// What Drive will say about each folder. A folder missing from here is one it
+// refuses to describe, which is the case the app has to survive.
+let FOLDERS = {};
 
 await p.route("**://accounts.google.com/gsi/client*", (r) => {
   hits.push("gsi");
@@ -103,12 +106,13 @@ await p.route("**://www.googleapis.com/drive/v3/files**", (r) => {
   }
   const single = url.pathname.match(/\/files\/([^/]+)$/);
   if (single) {
-    hits.push(`meta:${single[1]}`);
-    if (folderNameAnswer === null) {
+    const id = single[1];
+    hits.push(`meta:${id}`);
+    const known = FOLDERS[id];
+    if (!known) {
       return r.fulfill({ status: 403, contentType: "application/json", body: '{"error":{"message":"no"}}' });
     }
-    return r.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ name: folderNameAnswer }) });
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(known) });
   }
   hits.push("list");
   if (listingAnswer.status !== 200) {
@@ -223,7 +227,7 @@ check(hits.filter((h) => h.startsWith("get:")).length === storedNow,
 // goes into it and picks the songs — and the set is still named for the
 // Sunday, because the one thing worth asking Drive about the folder is what it
 // is called.
-folderNameAnswer = "Nov 29";
+FOLDERS = { "dir-nov29": { name: "Nov 29", parents: ["dir-worship"] }, "dir-worship": { id: "dir-worship" } };
 await p.evaluate(() => { window.__simClock = 0; });
 await answer([pdf("f-doxo", "dir-nov29"), pdf("f-build", "dir-nov29")]);
 await askForDrive();
@@ -238,8 +242,14 @@ check(nov29?.scores.length === 2,
   `songs picked out of one folder are that folder's set (${nov29?.scores.length ?? 0})`);
 check(hits.includes("meta:dir-nov29"), "which took one question about the folder, and no listing of it");
 
+// Next week's folder appears beside this one, so that is where the picker
+// should start — the hunt through a shared drive is the part that is annoying
+// every single week.
+check((await p.evaluate(() => localStorage.getItem("autopage-drive-root"))) === "dir-worship",
+  "and the folder the Sundays live in is remembered for next time");
+
 // And when Drive will not say what the folder is called, the day does.
-folderNameAnswer = null;
+FOLDERS = { "dir-worship": { id: "dir-worship" } };
 await p.evaluate(() => { window.__autopage.state.page = 1; });
 await answer([pdf("f-king", "dir-quiet"), pdf("f-good", "dir-quiet")]);
 await askForDrive();
@@ -248,6 +258,20 @@ await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; }
 const today = new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" });
 check((await groups()).some((x) => x.name === today || x.name.startsWith(today)),
   `a folder Drive will not name falls back to the day: ${JSON.stringify((await groups()).map((x) => x.name))}`);
+check((await p.evaluate(() => window.__openedAt)) === "dir-worship",
+  `and this time the picker opened in the shared folder: ${await p.evaluate(() => window.__openedAt)}`);
+
+// A remembered folder that has been moved, renamed away or unshared must not
+// leave the picker opening on an empty view with no way to tell why.
+FOLDERS = {};
+await p.evaluate(() => { window.__openedAt = "still-set"; window.__autopage.state.page = 1; });
+await answer([pdf("f-build", "dir-gone")]);
+await askForDrive();
+await p.waitForTimeout(3000);
+check((await p.evaluate(() => window.__openedAt)) === "still-set",
+  "a folder that is no longer reachable is not used as the picker's starting point");
+check((await p.evaluate(() => localStorage.getItem("autopage-drive-root"))) === null,
+  "and is forgotten rather than retried every week");
 
 // --- Picking the folder, when Drive allows it -------------------------------
 listingAnswer = { status: 200, files: ["f-doxo", "f-king"] };
