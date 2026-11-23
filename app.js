@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23i drive-more";
+const BUILD = "2026-11-23j drive-multi";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2582,12 +2582,16 @@ const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.
  * a folder's contents; showing them to the player in Google's own picker is
  * not that, and never needed permission in the first place.
  */
-function drivePicker(token, openAt) {
+function drivePicker(token, openAt, { choosingFolder = true } = {}) {
   return new Promise((resolve) => {
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
       .setMimeTypes("application/pdf")
       .setIncludeFolders(true)
-      .setSelectFolderEnabled(true);
+      // Selectable while a folder is what is being looked for, and not once
+      // we are inside one. The picker appears to refuse multi-select while a
+      // folder could be part of the selection, which left the one view that
+      // exists to choose several songs in able to choose exactly one.
+      .setSelectFolderEnabled(choosingFolder);
     if (openAt) view.setParent(openAt);
 
     new window.google.picker.PickerBuilder()
@@ -2596,7 +2600,7 @@ function drivePicker(token, openAt) {
       .setAppId(GOOGLE_APP_ID)
       .addView(view)
       .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-      .setTitle("Pick the Sunday's folder, then its songs")
+      .setTitle(choosingFolder ? "Pick the Sunday's folder" : "Select the songs")
       .setCallback((data) => {
         const { Action } = window.google.picker;
         if (data.action === Action.PICKED) resolve(data.docs ?? []);
@@ -2692,11 +2696,27 @@ async function driveDownload(fileId, token) {
  * means when the folder cannot be read any other way. The hop count is only
  * there so that a strange answer cannot spin forever.
  */
-async function pickSongs(token, startAt = null) {
+async function pickSongs(token, startAt = null, browse = false) {
   let openAt = startAt ?? (await drivePickerRoot(token));
+  // "Add more" comes back inside a folder, where songs are what is wanted.
+  // "Browse folders" comes back to the same place wanting to go deeper.
+  let inside = Boolean(startAt) && !browse;
+
   for (let hop = 0; hop < 8; hop++) {
-    const docs = await drivePicker(token, openAt);
-    if (!docs.length) return []; // cancelled
+    const docs = await drivePicker(token, openAt, { choosingFolder: !inside });
+
+    if (!docs.length) {
+      // Cancelled inside a folder, having taken nothing. That can mean the
+      // songs are a level further down and folders were not selectable there,
+      // so offer the way back rather than treating it as "never mind".
+      if (inside && openAt) {
+        setProgress("Nothing picked.", "done", {
+          label: "Browse folders",
+          run: () => openFromDrive({ openAt, browse: true }),
+        });
+      }
+      return [];
+    }
 
     const songs = docs.filter((d) => !isFolder(d) && isPdf(d));
     if (songs.length) return docs;
@@ -2706,6 +2726,7 @@ async function pickSongs(token, startAt = null) {
 
     setProgress(`Opening ${folders[0].name}…`);
     openAt = folders[0].id;
+    inside = true;
   }
   return [];
 }
@@ -2714,8 +2735,9 @@ async function pickSongs(token, startAt = null) {
  * @param addTo    A set to add to, rather than starting a new one.
  * @param openAt   The folder to open the picker in, skipping the hunt.
  * @param soFar    Songs already collected on this trip through the picker.
+ * @param browse   Open that folder wanting to go deeper, not to pick songs.
  */
-async function openFromDrive({ addTo = null, openAt = null, soFar = [] } = {}) {
+async function openFromDrive({ addTo = null, openAt = null, soFar = [], browse = false } = {}) {
   if (!GOOGLE_API_KEY) {
     driveProblem("Google Drive is not configured in this build.");
     return;
@@ -2734,7 +2756,7 @@ async function openFromDrive({ addTo = null, openAt = null, soFar = [] } = {}) {
     const token = await driveSignIn();
 
     setProgress("");
-    const docs = await pickSongs(token, openAt);
+    const docs = await pickSongs(token, openAt, browse);
     if (!docs.length) return; // cancelled, which is not a failure
 
     const songs = docs.filter((d) => !isFolder(d) && isPdf(d));

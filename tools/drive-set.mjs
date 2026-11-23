@@ -53,7 +53,11 @@ const GAPI_STUB = `
         window.__openedAt = null;
         this.setMimeTypes = () => this;
         this.setIncludeFolders = () => this;
-        this.setSelectFolderEnabled = (on) => { window.__folderPicking = on; return this; };
+        this.setSelectFolderEnabled = (on) => {
+          window.__folderPicking = on;
+          (window.__folderModes = window.__folderModes || []).push(on);
+          return this;
+        };
         this.setParent = (id) => { window.__openedAt = id; return this; };
       },
       PickerBuilder: function () {
@@ -160,6 +164,7 @@ const answerEach = (steps) => p.evaluate((list) => {
   window.__answers = list.map((docs) => ({ action: "picked", docs }));
   window.__answer = { action: "cancel" };
   window.__opened = [];
+  window.__folderModes = [];
 }, steps);
 
 /**
@@ -227,8 +232,8 @@ check(g[0].name === new Date().toLocaleDateString(undefined, { day: "numeric", m
   `named for the day, there being no folder to name it after: "${g[0].name}"`);
 check((await p.evaluate(() => window.__folderPicking)) === true,
   "folders stay selectable, because a folder that cannot be tapped cannot be entered either");
-check((await p.evaluate(() => window.__sawTitle ?? "")).includes("then its songs"),
-  `and the picker says what the folder is for: "${await p.evaluate(() => window.__sawTitle)}"`);
+check((await p.evaluate(() => window.__sawTitle ?? "")).includes("Sunday's folder"),
+  `and the picker says what it wants: "${await p.evaluate(() => window.__sawTitle)}"`);
 check((await p.evaluate(() => window.__autopage.state.name)) === "01 Build My Life.pdf",
   "and the first song is the one that opens");
 check(["f-build", "f-good", "f-king"].every((id) => hits.includes(`get:${id}`)),
@@ -321,6 +326,13 @@ const dec6 = (await groups()).find((x) => x.name === "Dec 6");
 check(dec6?.scores.length === 2, `choosing a folder gets you into it (${dec6?.scores.length ?? 0} songs)`);
 check((await p.evaluate(() => window.__opened))?.[1] === "dir-dec6",
   `and the second opening was inside that folder: ${JSON.stringify(await p.evaluate(() => window.__opened))}`);
+
+// Folders are selectable while a folder is what is being looked for, and not
+// once we are inside one: the picker appears to refuse multi-select while a
+// folder could be part of the selection, which left the one view that exists
+// for choosing several songs able to choose exactly one.
+check(JSON.stringify(await p.evaluate(() => window.__folderModes)) === "[true,false]",
+  `folders are selectable to get in, and not once in: ${JSON.stringify(await p.evaluate(() => window.__folderModes))}`);
 
 // --- One at a time, into the same Sunday ------------------------------------
 //

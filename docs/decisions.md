@@ -770,3 +770,25 @@ new — add a song that has been in a set before and nothing redraws, so the set
 looks unchanged. It is drawn explicitly now, once, after the grouping is
 decided rather than before and after, which also removes a flicker where the
 songs appeared loose and then regrouped.
+
+## The picker will not multi-select while a folder could be in the selection
+
+Inside the folder, only one song could be chosen. `MULTISELECT_ENABLED` was
+set, the documentation says that is all there is to it, and nothing published
+covers the combination — so the remaining suspect was the thing that had just
+been turned back on: folders being selectable. A selection that might contain a
+folder and three files is not something the picker seems willing to offer.
+
+So selectability depends on what the picker is being opened *for*. Looking for
+the Sunday's folder: folders selectable, one tap, in you go. Already inside it:
+folders not selectable, and the view exists to choose songs. The title says
+which it is.
+
+The cost is that a folder one level deeper cannot be tapped, because inside a
+folder nothing that is a folder is selectable any more. Cancelling out of a
+folder having taken nothing is the signal for that, and it offers **Browse
+folders** — the same place, opened the other way. It costs a tap for the nested
+case and nothing at all for the flat one, which is the one these churches have.
+
+If this turns out not to be the cause, nothing is lost: the set grows by
+picking one at a time either way.
