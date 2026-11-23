@@ -48,6 +48,9 @@ const GAPI_STUB = `
       Action: { PICKED: "picked", CANCEL: "cancel" },
       Feature: { MULTISELECT_ENABLED: "multi" },
       DocsView: function () {
+        // Cleared here, where a view is built, and not in the builder — the
+        // builder is constructed after setParent has already been called.
+        window.__openedAt = null;
         this.setMimeTypes = () => this;
         this.setIncludeFolders = () => this;
         this.setSelectFolderEnabled = (on) => { window.__folderPicking = on; return this; };
@@ -62,7 +65,15 @@ const GAPI_STUB = `
         this.enableFeature = () => this;
         this.setCallback = (f) => { cb = f; return this; };
         this.setTitle = (t) => { window.__sawTitle = t; return this; };
-        this.build = () => ({ setVisible: () => setTimeout(() => cb(window.__answer), 0) });
+        this.build = () => ({ setVisible: () => setTimeout(() => {
+          // A queue, because choosing a folder opens the picker again and the
+          // second opening has to be able to answer differently.
+          const queued = (window.__answers && window.__answers.length)
+            ? window.__answers.shift()
+            : window.__answer;
+          (window.__opened = window.__opened || []).push(window.__openedAt ?? null);
+          cb(queued);
+        }, 0) });
       },
     };
     (arg && arg.callback ? arg.callback : arg)();
@@ -139,7 +150,17 @@ const errorText = () => p.evaluate(() => {
   const e = document.getElementById("scoreError");
   return e.hidden ? "" : e.textContent;
 });
-const answer = (docs) => p.evaluate((d) => { window.__answer = { action: "picked", docs: d }; }, docs);
+const answer = (docs) => p.evaluate((d) => {
+  window.__answer = { action: "picked", docs: d };
+  window.__answers = [];
+}, docs);
+
+/** Successive answers, for a run that goes into a folder before picking. */
+const answerEach = (steps) => p.evaluate((list) => {
+  window.__answers = list.map((docs) => ({ action: "picked", docs }));
+  window.__answer = { action: "cancel" };
+  window.__opened = [];
+}, steps);
 
 /**
  * Ask for Drive the way somebody would, from wherever they are.
@@ -201,10 +222,10 @@ check(g[0].scores.join(" | ") === "01 Build My Life | 02 Goodness of God | 03 Ki
   `in numbered order, not the order Drive listed them: ${g[0].scores.join(" | ")}`);
 check(g[0].name === new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" }),
   `named for the day, there being no folder to name it after: "${g[0].name}"`);
-check((await p.evaluate(() => window.__folderPicking)) === false,
-  "folders cannot be selected, because selecting one is a dead end under drive.file");
-check((await p.evaluate(() => window.__sawTitle ?? "")).includes("select its songs"),
-  `and the picker says what to do instead: "${await p.evaluate(() => window.__sawTitle)}"`);
+check((await p.evaluate(() => window.__folderPicking)) === true,
+  "folders stay selectable, because a folder that cannot be tapped cannot be entered either");
+check((await p.evaluate(() => window.__sawTitle ?? "")).includes("then its songs"),
+  `and the picker says what the folder is for: "${await p.evaluate(() => window.__sawTitle)}"`);
 check((await p.evaluate(() => window.__autopage.state.name)) === "01 Build My Life.pdf",
   "and the first song is the one that opens");
 check(["f-build", "f-good", "f-king"].every((id) => hits.includes(`get:${id}`)),
@@ -264,60 +285,71 @@ check((await p.evaluate(() => window.__openedAt)) === "dir-worship",
 // A remembered folder that has been moved, renamed away or unshared must not
 // leave the picker opening on an empty view with no way to tell why.
 FOLDERS = {};
-await p.evaluate(() => { window.__openedAt = "still-set"; window.__autopage.state.page = 1; });
+await p.evaluate(() => { window.__autopage.state.page = 1; });
 await answer([pdf("f-build", "dir-gone")]);
 await askForDrive();
 await p.waitForTimeout(3000);
-check((await p.evaluate(() => window.__openedAt)) === "still-set",
+check((await p.evaluate(() => window.__openedAt)) === null,
   "a folder that is no longer reachable is not used as the picker's starting point");
 check((await p.evaluate(() => localStorage.getItem("autopage-drive-root"))) === null,
   "and is forgotten rather than retried every week");
 
-// --- Picking the folder, when Drive allows it -------------------------------
-listingAnswer = { status: 200, files: ["f-doxo", "f-king"] };
-await answer([folder("dir-1123", "Christmas Eve")]);
+// --- Choosing a folder means "go in there" ---------------------------------
+//
+// The whole point. drive.file will not list a folder, but Google's own picker
+// will happily show it — so a chosen folder reopens the picker inside it, and
+// the player picks the songs there. Folders stay selectable because a folder
+// that cannot be tapped cannot be entered either: the picker only walks into
+// an unselectable folder on a double tap, which on a phone is nothing at all.
+FOLDERS = { "dir-dec6": { name: "Dec 6", parents: ["dir-worship"] }, "dir-worship": { id: "dir-worship" } };
+await p.evaluate(() => { window.__autopage.state.page = 1; });
+await answerEach([
+  [folder("dir-dec6", "Dec 6")],                           // tapped the folder
+  [pdf("f-king", "dir-dec6"), pdf("f-doxo", "dir-dec6")],  // then its songs
+]);
 await askForDrive();
 await p.waitForFunction(
-  () => [...document.querySelectorAll("#recent > .recent-head")].some((h) => h.firstChild.textContent === "Christmas Eve"),
+  () => [...document.querySelectorAll("#recent > .recent-head")]
+    .some((h) => h.firstChild.textContent === "Dec 6"),
   null, { timeout: 30000 }
 );
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
-g = await groups();
-const sunday = g.find((x) => x.name === "Christmas Eve");
-check(sunday?.scores.length === 2, `a picked folder becomes a set of its songs (${sunday?.scores.length ?? 0})`);
-check(sunday.scores.join(" | ") === "03 King of Kings | 04 Doxology",
-  `named after the folder, sorted by song: ${sunday.scores.join(" | ")}`);
-check(!(await errorText()), "and nothing is reported as wrong");
+const dec6 = (await groups()).find((x) => x.name === "Dec 6");
+check(dec6?.scores.length === 2, `choosing a folder gets you into it (${dec6?.scores.length ?? 0} songs)`);
+check((await p.evaluate(() => window.__opened))?.[1] === "dir-dec6",
+  `and the second opening was inside that folder: ${JSON.stringify(await p.evaluate(() => window.__opened))}`);
 
-// A song in two Sundays is still one entry with one bookmark.
-const tiles = await p.evaluate(() =>
-  [...document.querySelectorAll("#recent .recent-item")].map((n) => n.dataset.id));
-check(new Set(tiles).size < tiles.length,
-  "the song that is in both Sundays is one stored score shown in both, not two copies");
-
-// --- Picking the folder, when Drive refuses ---------------------------------
+// --- Several folders at once is not a direction -----------------------------
 //
-// The likely case, and the one that must not look like a crash: drive.file
-// grants the folder, not what is in it. Say what to do instead.
-listingAnswer = { status: 403, files: [] };
-await answer([folder("dir-locked", "Epiphany")]);
+// Going into one folder is an instruction. Going into three is not, and
+// drive.file will not list any of them, so say what to do rather than guess.
+FOLDERS = {};
+await p.evaluate(() => { window.__autopage.state.page = 1; });
+await answer([folder("dir-a", "Nov 1"), folder("dir-b", "Nov 8")]);
 await askForDrive();
 await p.waitForFunction(() => {
   const t = document.getElementById("driveToast");
-  return t && !t.hidden && t.textContent.includes("Epiphany");
+  return t && !t.hidden && t.textContent.includes("one folder at a time");
 }, null, { timeout: 30000 });
 const said = await errorText();
-check(said.includes("select the songs themselves"), `it says what to do instead: "${said}"`);
+check(said.includes("select the songs inside it"), `it says what to do instead: "${said}"`);
 
 // And says it where it can be read. With a score open the first screen is
 // gone, so a message written only there is the same as no message at all —
 // which is exactly how "I pressed Select and nothing happened" happens.
 const note = p.locator("#driveToast");
-check(await note.isVisible() && (await note.textContent()).includes("Epiphany"),
+check(await note.isVisible(),
   "the problem is visible over the score, whatever is open and whatever is collapsed");
 check((await note.getAttribute("class")).includes("is-problem"),
   "and reads as a problem rather than as progress");
-check(!(await groups()).some((x) => x.name === "Epiphany"), "and no empty Sunday is left behind");
+check(!(await groups()).some((x) => x.name === "Nov 1"), "and no empty Sunday is left behind");
+
+// Not once, in any of it.
+//
+// Listing a folder is the single thing drive.file refuses, and the whole
+// design is arranged around never needing to: Google's own picker shows the
+// player what is in there, which never needed permission at all.
+check(!hits.includes("list"), `Drive is never asked to list a folder (${hits.filter((h) => h === "list").length})`);
 
 // Cancelling is not a failure.
 await p.evaluate(() => { window.__answer = { action: "cancel" }; });

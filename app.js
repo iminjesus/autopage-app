@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23g drive-home";
+const BUILD = "2026-11-23h drive-into";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2499,20 +2499,25 @@ const isFolder = (doc) => doc.mimeType === "application/vnd.google-apps.folder";
 const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.name ?? "");
 
 /**
- * Let them go into the Sunday's folder and pick the songs.
+ * One pass of the picker, opened wherever we were told to open it.
  *
- * Folders are enterable but **not selectable**, because selecting one is a
- * dead end: drive.file hands over the folder and not a thing inside it, which
- * was tried against a real shared drive and refused. Offering a choice that
- * cannot work is worse than not offering it — the player picks the folder,
- * which is the obvious thing to do, and gets an apology.
+ * Folders are selectable, and that is deliberate even though drive.file will
+ * not hand over what is inside one. Making them unselectable instead meant a
+ * tap on a folder did nothing at all on a phone — the picker only enters an
+ * unselectable folder on a double tap, which nobody discovers. A choice that
+ * does nothing is worse than a dead end, because a dead end at least says so.
+ *
+ * What a picked folder means here is "go in there", and the caller obliges by
+ * opening the picker again inside it. The thing drive.file refuses is listing
+ * a folder's contents; showing them to the player in Google's own picker is
+ * not that, and never needed permission in the first place.
  */
 function drivePicker(token, openAt) {
   return new Promise((resolve) => {
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
       .setMimeTypes("application/pdf")
       .setIncludeFolders(true)
-      .setSelectFolderEnabled(false);
+      .setSelectFolderEnabled(true);
     if (openAt) view.setParent(openAt);
 
     new window.google.picker.PickerBuilder()
@@ -2521,7 +2526,7 @@ function drivePicker(token, openAt) {
       .setAppId(GOOGLE_APP_ID)
       .addView(view)
       .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
-      .setTitle("Open the Sunday's folder, then select its songs")
+      .setTitle("Pick the Sunday's folder, then its songs")
       .setCallback((data) => {
         const { Action } = window.google.picker;
         if (data.action === Action.PICKED) resolve(data.docs ?? []);
@@ -2600,22 +2605,6 @@ async function drivePickerRoot(token) {
   return null;
 }
 
-/** The PDFs inside a picked folder, or nothing if the scope will not show them. */
-async function folderSongs(folderId, token) {
-  const q = `'${folderId}' in parents and mimeType = 'application/pdf' and trashed = false`;
-  const url =
-    `${DRIVE_API}?q=${encodeURIComponent(q)}` +
-    "&fields=files(id,name)&orderBy=name&pageSize=200" +
-    "&supportsAllDrives=true&includeItemsFromAllDrives=true";
-  try {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return []; // the expected answer under drive.file
-    return (await res.json()).files ?? [];
-  } catch {
-    return [];
-  }
-}
-
 async function driveDownload(fileId, token) {
   const res = await fetch(
     `${DRIVE_API}/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
@@ -2623,6 +2612,32 @@ async function driveDownload(fileId, token) {
   );
   if (!res.ok) throw new Error(`Drive refused that file (${res.status})`);
   return res.arrayBuffer();
+}
+
+/**
+ * Pick songs, going into folders on the way if that is what they chose.
+ *
+ * A folder is not an answer, it is a direction. Choosing one reopens the
+ * picker inside it, which is what "go into the folder and select the songs"
+ * means when the folder cannot be read any other way. The hop count is only
+ * there so that a strange answer cannot spin forever.
+ */
+async function pickSongs(token) {
+  let openAt = await drivePickerRoot(token);
+  for (let hop = 0; hop < 8; hop++) {
+    const docs = await drivePicker(token, openAt);
+    if (!docs.length) return []; // cancelled
+
+    const songs = docs.filter((d) => !isFolder(d) && isPdf(d));
+    if (songs.length) return docs;
+
+    const folders = docs.filter(isFolder);
+    if (folders.length !== 1) return docs; // several at once is not a direction
+
+    setProgress(`Opening ${folders[0].name}…`);
+    openAt = folders[0].id;
+  }
+  return [];
 }
 
 async function openFromDrive() {
@@ -2643,27 +2658,20 @@ async function openFromDrive() {
     // and the second tap goes straight through.
     const token = await driveSignIn();
 
-    const openAt = await drivePickerRoot(token);
     setProgress("");
-    const docs = await drivePicker(token, openAt);
+    const docs = await pickSongs(token);
     if (!docs.length) return; // cancelled, which is not a failure
 
-    // A picked folder names the set, whether or not it will list its contents.
-    const folder = docs.find(isFolder);
-    const songs = [...docs.filter((d) => !isFolder(d) && isPdf(d))];
-    for (const dir of docs.filter(isFolder)) {
-      setProgress(`Reading ${dir.name}…`);
-      songs.push(...(await folderSongs(dir.id, token)));
-    }
+    const songs = docs.filter((d) => !isFolder(d) && isPdf(d));
 
-    // Two folders can hold the same song; one entry is enough.
+    // The same song can be picked twice; one entry is enough.
     const seen = new Set();
     const unique = songs.filter((s) => !seen.has(s.id) && seen.add(s.id));
 
     if (!unique.length) {
       driveProblem(
-        folder
-          ? `Google would not open ${folder.name} as a folder. Go into it and select the songs themselves.`
+        docs.some(isFolder)
+          ? "Choose one folder at a time, or select the songs inside it."
           : "Nothing in that selection was a PDF."
       );
       return;
@@ -2673,9 +2681,9 @@ async function openFromDrive() {
     // is called; otherwise the day does. The same answer says where next
     // Sunday's folder will turn up, so the picker can start there next time.
     setProgress("Naming the set…");
-    const info = await driveFolderInfo(sharedParent(docs), token);
+    const info = await driveFolderInfo(sharedParent(unique), token);
     if (info?.parents?.[0]) remember(DRIVE_ROOT_KEY, info.parents[0]);
-    const named = folder?.name ?? info?.name ?? todayName();
+    const named = info?.name ?? todayName();
 
     await adoptSet(
       unique.map((song) => ({

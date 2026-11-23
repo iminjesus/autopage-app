@@ -145,12 +145,15 @@ in**, so next week's is already on screen rather than somewhere down a shared
 drive. It is checked before it is used: a folder that has been moved or
 unshared is forgotten rather than opening the picker on an empty view.
 
-Folders can be opened but not selected, on purpose. Under `drive.file` Google
-hands over a selected folder and nothing inside it — tried against a real
-shared drive, and refused — so offering the choice would only let somebody pick
-the obvious thing and get an apology. The folder's *name* is still asked for,
-which is one question Drive usually will answer; if it will not, the set is
-named for the day.
+**Choosing a folder means "go in there."** Under `drive.file` Google hands over
+a selected folder and nothing inside it — tried against a real shared drive,
+and refused — so the app reopens the picker *inside* the folder instead, and
+the songs are chosen there. Listing a folder is the thing that is refused;
+showing it to somebody in Google's own picker never needed permission at all,
+and the app never asks Drive to list anything.
+
+The folder's *name* is asked for, which is one question Drive usually will
+answer; if it will not, the set is named for the day.
 
 The only permission asked for is **`drive.file`** — the songs you hand over in
 the picker, and nothing else in the drive. It is a non-sensitive scope, so

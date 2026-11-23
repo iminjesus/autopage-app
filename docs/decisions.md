@@ -716,3 +716,23 @@ and it is the same request shape that already works.
 If the church would rather merge the Sunday into one PDF, that path needs no
 permission at all and never did — the app has always treated a multi-page PDF
 as what it is.
+
+## A folder is a direction, not an answer
+
+Making folders unselectable was the wrong half of the fix. It removed the dead
+end and put nothing in its place: on a phone, **a tap on an unselectable folder
+does nothing at all**. The picker only walks into one on a double tap, which
+nobody discovers and nobody should have to. A choice that does nothing is worse
+than a dead end, because a dead end at least says so.
+
+Folders are selectable again, and choosing one now means *go in there*: the
+picker reopens inside it and the songs are picked from the second view. Which
+is what the request was — go into the folder and select — implemented by the
+only party able to do it.
+
+The thing `drive.file` refuses is **listing** a folder's contents. Showing them
+to the player in Google's own picker is not listing, and never needed
+permission in the first place. So the folder-listing attempt is gone entirely
+rather than kept as a fallback, and a test asserts the app never asks Drive to
+list anything at all. Several folders chosen at once is not a direction, and
+says so.
