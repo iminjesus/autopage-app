@@ -165,6 +165,14 @@ await p.waitForFunction(
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
 
 check(hits.includes("gsi") && hits.includes("gapi"), "Google's scripts are fetched, once Drive is asked for");
+
+// Fetched on the way down of the tap, so that the sign-in window is opened
+// while the browser still counts the tap as happening. Safari stops counting
+// after an await that goes to the network, and a blocked window looks exactly
+// like a button that does nothing.
+const order = hits.indexOf("gsi");
+check(order >= 0 && order < hits.findIndex((h) => h.startsWith("get:")),
+  "and before anything is asked of Drive itself");
 check((await p.evaluate(() => window.__sawToken)) === "test-token", "the picker is handed the signed-in token");
 check((await p.evaluate(() => window.__sawAppId)) === "239071426944",
   `and the project number, so drive.file can hand files over: ${await p.evaluate(() => window.__sawAppId)}`);

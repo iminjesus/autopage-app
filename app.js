@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23c privacy";
+const BUILD = "2026-11-23d drive-tap";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2423,6 +2423,8 @@ function loadScript(src) {
   return scriptsLoaded.get(src);
 }
 
+let googleIsReady = false;
+
 async function googleReady() {
   await Promise.all([loadScript(GSI_SRC), loadScript(GAPI_SRC)]);
   if (!window.google?.picker) {
@@ -2430,6 +2432,24 @@ async function googleReady() {
       window.gapi.load("picker", { callback: resolve, onerror: reject })
     );
   }
+  googleIsReady = true;
+}
+
+/**
+ * Start fetching Google's scripts on the way down of the tap, not after it.
+ *
+ * A sign-in window may only be opened while the browser still considers the
+ * tap to be happening, and Safari stops considering it after an await that
+ * goes to the network. Tap, fetch two scripts, open a window was therefore
+ * "the button does nothing" for anybody who had not used Drive yet on that
+ * page — the one group for whom it has to work the first time.
+ *
+ * Still nothing at startup: this runs on a press of the Drive button and
+ * nowhere else, so a device with no network is never waiting on Google.
+ */
+function warmGoogle() {
+  if (googleIsReady || !navigator.onLine) return;
+  googleReady().catch(() => {});
 }
 
 /** Sign in, or reuse the sign-in from a few minutes ago. */
@@ -2445,10 +2465,19 @@ function driveSignIn() {
         driveTokenUntil = Date.now() + TOKEN_GOOD_FOR_MS;
         resolve(driveToken);
       },
-      error_callback: (err) => reject(new Error(err?.type ?? "sign-in cancelled")),
+      error_callback: (err) => reject(new Error(signInProblem(err?.type))),
     });
     client.requestAccessToken();
   });
+}
+
+/** Google's error types, in words somebody can act on. */
+function signInProblem(type) {
+  if (type === "popup_closed") return "sign-in was closed";
+  if (type === "popup_failed_to_open") {
+    return "the browser blocked the sign-in window — tap Google Drive again";
+  }
+  return type ?? "sign-in did not finish";
 }
 
 const isFolder = (doc) => doc.mimeType === "application/vnd.google-apps.folder";
@@ -2519,8 +2548,15 @@ async function openFromDrive() {
   }
   showError("");
   try {
-    setProgress("Connecting to Google…");
+    if (!googleIsReady) setProgress("Connecting to Google…");
     await googleReady();
+
+    // Try the sign-in window even if the scripts were only just fetched.
+    // Chrome opens it; Safari may refuse, because it stops counting the tap as
+    // live once an await has gone to the network. Refusing to try would cost
+    // everybody a second tap to spare Safari one, so it is attempted and the
+    // refusal is what gets explained — by which time the scripts are cached
+    // and the second tap goes straight through.
     const token = await driveSignIn();
 
     setProgress("");
@@ -2703,6 +2739,8 @@ async function loadSample() {
 on("sampleBtn", "click", loadSample);
 on("driveBtn", "click", openFromDrive);
 on("panelDriveBtn", "click", openFromDrive);
+on("driveBtn", "pointerdown", warmGoogle);
+on("panelDriveBtn", "pointerdown", warmGoogle);
 
 // --- Installing ---
 //
