@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23k drive-order";
+const BUILD = "2026-11-23l drive-list";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2592,6 +2592,17 @@ function drivePicker(token, openAt, { choosingFolder = true } = {}) {
       // folder could be part of the selection, which left the one view that
       // exists to choose several songs in able to choose exactly one.
       .setSelectFolderEnabled(choosingFolder);
+
+    // A list rather than a grid of thumbnails.
+    //
+    // The grid is what a phone gets by default, and it is the view that will
+    // only ever hold one thing selected. A list is the shape the picker's own
+    // toggle offers next to it, and the shape every multi-select on a phone
+    // takes — a row per item with somewhere for a tick to go. Guarded because
+    // it is a newer part of the picker than the rest of this.
+    const mode = window.google.picker.DocsViewMode?.LIST;
+    if (mode && typeof view.setMode === "function") view.setMode(mode);
+
     if (openAt) view.setParent(openAt);
 
     // Features before views, which is the order Google's own sample uses.

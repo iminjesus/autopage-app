@@ -47,11 +47,13 @@ const GAPI_STUB = `
       ViewId: { DOCS: "docs" },
       Action: { PICKED: "picked", CANCEL: "cancel" },
       Feature: { MULTISELECT_ENABLED: "multi" },
+      DocsViewMode: { LIST: "list", GRID: "grid" },
       DocsView: function () {
         // Cleared here, where a view is built, and not in the builder — the
         // builder is constructed after setParent has already been called.
         window.__openedAt = null;
         this.setMimeTypes = () => this;
+        this.setMode = (m) => { window.__viewMode = m; return this; };
         this.setIncludeFolders = () => this;
         this.setSelectFolderEnabled = (on) => {
           window.__folderPicking = on;
@@ -331,6 +333,8 @@ check((await p.evaluate(() => window.__opened))?.[1] === "dir-dec6",
 // once we are inside one: the picker appears to refuse multi-select while a
 // folder could be part of the selection, which left the one view that exists
 // for choosing several songs able to choose exactly one.
+check((await p.evaluate(() => window.__viewMode)) === "list",
+  `the picker is asked for a list, not a grid of thumbnails: ${await p.evaluate(() => window.__viewMode)}`);
 check(JSON.stringify(await p.evaluate(() => window.__folderModes)) === "[true,false]",
   `folders are selectable to get in, and not once in: ${JSON.stringify(await p.evaluate(() => window.__folderModes))}`);
 
