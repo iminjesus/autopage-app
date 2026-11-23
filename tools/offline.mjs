@@ -162,8 +162,12 @@ const turned = await p.evaluate(() => {
     return m;
   };
   const shapes = [{ categoryName: "eyeBlinkLeft", score: 0 }, { categoryName: "eyeBlinkRight", score: 0 }];
-  for (let t = 0; t < 8; t++) A.processFrame(face(0.015, 0.015), shapes);
-  for (let t = 0; t < 20; t++) A.processFrame(face(0.015, 0.001), shapes);
+  // Twenty-eight frames of video is nearly a second, so say so. Fed to the app
+  // as fast as a loop can run they are no time at all, and a gesture that has
+  // to be held for a fifth of a second never is.
+  const at = (t) => performance.now() + t * (1000 / 30);
+  for (let t = 0; t < 8; t++) A.processFrame(face(0.015, 0.015), shapes, at(t));
+  for (let t = 0; t < 20; t++) A.processFrame(face(0.015, 0.001), shapes, at(8 + t));
   return { before, after: A.state.page };
 });
 check(turned.after > turned.before, `a wink still turns the page offline: ${turned.before}->${turned.after}`);

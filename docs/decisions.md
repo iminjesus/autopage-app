@@ -583,3 +583,68 @@ A second thing the calendar found: the Drive test named its fake folder
 exactly what a church would have, and it is also what the app calls a set it
 had to name itself — so for one day a year the test would have been checking
 that it had found the wrong group. The fixtures are named for feasts now.
+
+## Level is where your head rests, not where the horizon is
+
+"It works, then suddenly it doesn't" was reported three times, fixed twice by
+loosening a constant, and was never the constant. Calibrating made it work,
+which was the whole clue: calibration is the one thing that measures the
+player instead of assuming them.
+
+Nobody's eyes are level. A stand off to one side, a strap, a habit of leaning
+in — seven degrees is ordinary. Measured from the horizon, a seven degree
+resting lean makes one direction seven degrees short and the other seven
+degrees over. Before: **12 degrees needed one way and 20 the other**. The
+player shifts in their chair and it changes again, with nothing on screen to
+explain why. That is the bug, and it had nothing to do with how far anybody
+had to tilt.
+
+So level follows the head. It is taken from the first frame a face appears in,
+then tracked while the head is still — never mid-movement, or the gesture would
+dissolve underneath it. It follows at two speeds, because far from level is
+genuinely ambiguous: a head twenty degrees over is either a gesture or somebody
+who has leaned into the stand, and nothing at that moment separates them. Near
+level it follows in about two and a half seconds; further out it takes six, so
+a gesture lasting under a second barely moves it while a posture still there
+ten seconds later gets adopted. That second rate is also what stops
+straightening up out of a long lean from reading as a deliberate tilt.
+
+Now: **10 degrees, the same in every posture**, and a page turns at every frame
+rate from 8fps to 30.
+
+## Frames are not time
+
+Every gate was counted in frames. The rate window was "the last nine samples",
+an onset stayed good for "eighteen frames", a gesture had to be held for "six
+of the last eight". All of that is only the same as time while the camera holds
+30fps, and it does not — rendering a page, a warm iPad, anything else running.
+At 8fps those nine frames spanned more than a second, so **a slow lean looked
+exactly like a flick and turned the page on its own**. A false turn is the
+failure that ends a performance.
+
+`processFrame` takes the moment it is for. Everything is milliseconds now: the
+300ms rate window, the 600ms onset, the hold, the cooldown. The harness passes
+the timestamp too, which is what makes "the same physical gesture at 8, 12, 15,
+20, 24 and 30fps" a test that can be written at all.
+
+Two things only showed up once it was: the first agreeing frame is worth one
+sampling gap of dwell, or a gesture of exactly the hold length always measures
+one frame short of it. And a tilt needs its own hold. Measured, a 200ms wink
+and a tilt flicked over and released without pausing both read as **exactly
+200ms** of held direction — one is the gesture and the other is a head moving,
+so they cannot share a number. The setting in the panel says "Wink length"
+because that is what it is; a tilt holds for 280ms.
+
+The gate came down from 12 degrees to 9 while it was open, but only as far as
+the false-turn battery allowed: bobbing with the beat, bobbing hard, a double
+take, looking down at the hands, turning to the congregation, settling into the
+stand, straightening up out of a lean. The hard bobbing is what sets the floor,
+and it is in the suite to be failed if the gate ever goes lower.
+
+Two tests had been measuring their own leftovers rather than the app. The
+replay clock restarted at zero on every call, which parked the turn cooldown in
+the future and quietly stopped the next replay turning anything — that is why
+the first run of the frame-rate sweep said 30fps worked and nothing else did,
+which is a convincing wrong answer. And the offline test fed the app
+twenty-eight frames inside a single tight loop, which is no time at all once
+anything is measured in time.

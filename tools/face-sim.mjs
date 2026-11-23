@@ -15,6 +15,15 @@ export function simulate({
   brow = 0,
   path = [],
   mode = "wink",
+  // Frames per second to replay at. The path is given in seconds, so this
+  // changes only how finely it is sampled — the same physical gesture, seen
+  // by a camera that is keeping up or struggling.
+  fps = 30,
+  // Where this player's head rests, in radians. Not everybody's eyes are
+  // level, and the settling frames before the gesture are spent here — which
+  // is how the app gets to see where "still" is for this person.
+  rest = 0,
+  settleSecs = 1,
   // Vertical compression of the whole face, about its centre.
   //
   // This is what a low music stand does. The camera sits below the player and
@@ -28,7 +37,13 @@ export function simulate({
   squash = 1,
 }) {
   let gapL = gL, gapR = gR;
-  const legs = path.map(([to, secs]) => [to, Math.max(1, Math.round(secs * 30))]);
+  const legs = path.map(([to, secs]) => [to, Math.max(1, Math.round(secs * fps))]);
+  // One clock across every call, not a fresh one each time. Replays that each
+  // restarted at zero sent the frame clock backwards, which parked the turn
+  // cooldown in the future and quietly stopped the next replay from turning
+  // anything — a test that reported a broken gesture because of its own clock.
+  const base = (window.__simClock ?? 0) + 2000;
+  const at = (t) => base + t * (1000 / fps);
   const rollAt = (t) => {
     let start = 0, from = 0;
     for (const [to, n] of legs) {
@@ -47,8 +62,8 @@ export function simulate({
 
   // A face, made of the eleven points the app actually reads.
   const face = (t, neutral = false) => {
-    const turn = hz ? yaw * Math.sin((2 * Math.PI * hz * t) / 30) : yaw || 0;
-    const roll = neutral ? 0 : rollAt(t);
+    const turn = hz ? yaw * Math.sin((2 * Math.PI * hz * t) / fps) : yaw || 0;
+    const roll = neutral ? rest : rollAt(t);
     const half = 0.06, cx = 0.5 + turn * 0.05, cy = 0.32;
     const L = { x: cx + half * Math.cos(roll), y: cy + half * Math.sin(roll) };
     const R = { x: cx - half * Math.cos(roll), y: cy - half * Math.sin(roll) };
@@ -89,7 +104,11 @@ export function simulate({
   };
 
   const total = legs.length ? legs.reduce((n, [, f]) => n + f, 0) : frames;
-  for (let t = 0; t < 8; t++) A.processFrame(openFace(t), neutralShapes);
-  for (let t = 0; t < total; t++) A.processFrame(face(t), shapes);
+  window.__simClock = at(Math.max(1, Math.round(fps * settleSecs)) + total);
+  // A second of sitting still first: long enough for the app to see where this
+  // player's head rests, which is what every angle below is measured from.
+  const settle = Math.max(1, Math.round(fps * settleSecs));
+  for (let t = 0; t < settle; t++) A.processFrame(openFace(t), neutralShapes, at(t));
+  for (let t = 0; t < total; t++) A.processFrame(face(t), shapes, at(settle + t));
   return { from: before, to: A.state.page, turned: A.state.page !== before };
 }

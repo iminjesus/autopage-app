@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23a stale-guard";
+const BUILD = "2026-11-23b steady-turn";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -431,6 +431,19 @@ const HOLD_KEY = "autopage.winkHold2";
 // gap gate and the per-direction thresholds are what keep a look down out, so
 // duration only has to be longer than an accident.
 let gestureHoldMs = 200;
+
+/**
+ * How long a tilt has to stay over before it counts, in milliseconds.
+ *
+ * Its own number, not the wink's. Measured, the two gestures are not telling
+ * apart by dwell alone: a two hundred millisecond wink and a tilt flicked over
+ * and released without pausing both read as exactly 200ms of held direction.
+ * One of those is the gesture and the other is a head moving, so the dwell
+ * that makes a tilt deliberate has to be longer than the one that makes a wink
+ * deliberate. The setting in the panel says "Wink length" because that is what
+ * it is.
+ */
+const TILT_HOLD_MS = 280;
 // Which eye means forward is worked out from the image, but that reasoning has
 // been wrong about enough conventions in this project to deserve an override
 // that takes one click rather than another round trip.
@@ -454,6 +467,8 @@ const holdFrames = () =>
 // turned into never firing at all. The tolerance has to scale with the window,
 // not stay at "one dropped frame".
 const VOTE_FRACTION = 0.75;
+// Kept for the harness, which still reports them; nothing decides on them any
+// more. What a gesture has to clear is a duration, not a number of frames.
 const holdWindow = () => holdFrames() + 2;
 const requiredVotes = () => Math.max(2, Math.round(holdFrames() * VOTE_FRACTION));
 // One eye fully shut against one fully open is 1.0 — but a wink that only half
@@ -507,20 +522,25 @@ const MODE_KEY = "autopage.gestureMode";
 // decisively away from level, that counts for the next 0.6s, and the frames
 // after it only have to hold the angle. Flick it over and stop — which is what
 // the gesture always looked like it was asking for.
-const ROLL_THRESHOLD = 0.21; // radians, about 12 degrees
+const ROLL_THRESHOLD = 0.16; // radians, about 9 degrees from where the head rests
 const ROLL_RATE = 0.14; // radians of change within 300ms, about 8 degrees
 const ONSET_FRAMES = Math.round(0.6 * 30); // how long an onset stays good for
+const ROLL_WINDOW_MS = 300; // the span ROLL_RATE is measured over
 
 let landmarker = null;
 let camStream = null;
 let gestureTimer = null;
 let gestureHold = 0;
+// The longest a direction has been held since this was last cleared. Kept so
+// that "how long does this movement actually read as a gesture?" is a number
+// somebody can look at rather than a guess.
+let peakHeld = 0;
 let gestureDirection = 0;
 // The last few frames' verdicts. A quick wink can dip under the threshold for
 // a frame on its way up or down, and demanding an unbroken run throws the
 // whole gesture away over that one frame.
 const recent = [];
-let lastGestureAt = 0;
+let lastGestureAt = -Infinity;
 let gestureLatched = false;
 let calibration = null; // {threshold, separation}
 let calibrating = null; // {phase, samples, until}
@@ -531,7 +551,19 @@ let headMotion = 0;
 let headYaw = 0;
 const yawHistory = [];
 let yawSwing = 0;
-const rollHistory = [];
+const rollHistory = []; // {at, roll}, trimmed by time rather than by count
+
+/**
+ * The moment the frame being processed happened.
+ *
+ * Every gate below used to be counted in frames — a 300ms rate window was
+ * "the last 9 samples", an onset stayed good for "18 frames". That is only the
+ * same thing as time while the camera holds 30fps, and it does not: rendering
+ * a page, a warm iPad or another app running turns 30 into 12 without warning,
+ * and every threshold silently moves with it. The gesture worked, then
+ * suddenly did not, for no reason the player could see.
+ */
+let frameNow = 0;
 let rollRate = 0;
 let onsetAge = Infinity; // frames since the head last moved away from level
 let onsetSign = 0; // and which way it went
@@ -876,17 +908,75 @@ function eyeOf(landmarks, points) {
  *
  * @returns {{asym: number, openL: number, openR: number}|null}
  */
-/** How far the head is tilted, in radians, from the line between the eyes. */
+/**
+ * Where this player's head rests, tracked while they sit there.
+ *
+ * Nobody's eyes are level. A stand off to one side, a strap, a habit of
+ * leaning in — seven degrees is ordinary, and measured from horizontal that
+ * makes one direction seven degrees short and the other seven degrees over.
+ * It worked one way and not the other, and it changed whenever they shifted,
+ * which is what "it works, then suddenly it doesn't" actually was.
+ *
+ * So level is wherever the head has been sitting, not where the horizon is. It
+ * follows slowly, and only while the head is somewhere a gesture is not: hold
+ * a tilt and it stays put, or the gesture would dissolve underneath you.
+ */
+let neutralRoll = null;
+let neutralSeenAt = -Infinity;
+// Level follows quickly when the head is near it and slowly when it is far.
+//
+// Far from level is ambiguous by nature: a head held twenty degrees over is
+// either a gesture or somebody who has leaned into the stand, and at the
+// moment it happens there is nothing to tell them apart. Adopting it slowly
+// splits the difference honestly — a gesture lasts under a second and barely
+// moves level at all, while a posture is still there ten seconds later and
+// gets taken on. It is also what stops straightening up out of a long lean
+// from reading as a deliberate tilt the other way.
+const NEUTRAL_TAU_MS = 2500; // near level: ordinary drift, followed readily
+const NEUTRAL_SLOW_TAU_MS = 6000; // far from it: taken on only if it persists
+const NEUTRAL_FORGET_MS = 3000; // a face gone this long is probably a new one
+
+/** How far the head is tilted, in radians, from where this head rests. */
 function headRoll(landmarks) {
   const a = landmarks[33];
   const b = landmarks[263];
   if (!a || !b) return 0;
-  const roll = Math.atan2(b.y - a.y, b.x - a.x);
+  const raw = Math.atan2(b.y - a.y, b.x - a.x);
 
-  rollHistory.push(roll);
-  while (rollHistory.length > Math.round(GESTURE_FPS * 0.3)) rollHistory.shift();
-  const delta = roll - rollHistory[0];
+  // First sight, or a new person: take where they are as level at once. There
+  // is no useful halfway state to sit in while it converges.
+  if (neutralRoll === null || frameNow - neutralSeenAt > NEUTRAL_FORGET_MS) {
+    neutralRoll = raw;
+    rollHistory.length = 0;
+  }
+  const dt = Math.max(0, Math.min(500, frameNow - neutralSeenAt));
+  neutralSeenAt = frameNow;
+
+  const roll = raw - neutralRoll;
+
+  // The rate window is 300 milliseconds, not nine frames.
+  //
+  // Nine frames is 300ms only while the camera holds 30, and it does not: a
+  // page being rendered, a warm iPad or another app turns 30 into 12 without
+  // warning. At 8fps those nine frames spanned more than a second, so a slow
+  // lean looked exactly like a flick and turned the page on its own.
+  rollHistory.push({ at: frameNow, roll });
+  while (rollHistory.length > 1 && frameNow - rollHistory[0].at > ROLL_WINDOW_MS) {
+    rollHistory.shift();
+  }
+  const delta = roll - rollHistory[0].roll;
   rollRate = Math.abs(delta);
+
+  // Level follows the head only while the head is still. Mid-movement it is a
+  // gesture, and level stays where it was or the gesture dissolves underneath.
+  // Not while calibrating: that asks the player to hold a tilt for a couple of
+  // seconds, and level creeping towards it would make the tilt they performed
+  // read as smaller than it was.
+  if (!calibrating && rollRate < tiltRate() * 0.5) {
+    const near = Math.abs(roll) < tiltLimit() * 0.6;
+    const tau = near ? NEUTRAL_TAU_MS : NEUTRAL_SLOW_TAU_MS;
+    neutralRoll += roll * (1 - Math.exp(-dt / tau));
+  }
 
   onsetAge += 1;
   // Away from level, not back towards it. Straightening up from a lean is quick
@@ -978,7 +1068,14 @@ function gestureFrame() {
  * thresholds, the vote counting, the turn itself — used to ship unexercised,
  * and it broke twice in a row with nothing to notice.
  */
-function processFrame(landmarks, shapes) {
+/**
+ * @param now  When this frame happened, in milliseconds. Defaults to the clock.
+ *             Passing it lets the harness replay one physical gesture at any
+ *             frame rate, which is the only way to check that the frame rate
+ *             does not change what the gesture feels like.
+ */
+function processFrame(landmarks, shapes, now = performance.now()) {
+  frameNow = now;
   if (landmarks) updateHeadPose(landmarks);
   if (!shapes || !landmarks) {
     gestureHold = 0;
@@ -1065,7 +1162,7 @@ function processFrame(landmarks, shapes) {
     const deg = (rad) => `${rad >= 0 ? "+" : ""}${((rad * 180) / Math.PI).toFixed(0)}°`;
     el.gestureAsym.textContent =
       `tilt  roll ${deg(roll)} (${towards})  moving ${((rollRate * 180) / Math.PI).toFixed(0)}°/0.3s` +
-      `  ${gestureHold}/${requiredVotes()}f${unstable ? "  TURNED AWAY" : ""}\n` +
+      `  held ${Math.round(peakHeld)}/${gestureMode === "tilt" ? TILT_HOLD_MS : gestureHoldMs}ms${unstable ? "  TURNED AWAY" : ""}\n` +
       `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°, flicked there faster than ` +
       `${((tiltRate() * 180) / Math.PI).toFixed(0)}°/0.3s  —  ` +
       `${onsetAge > ONSET_FRAMES ? "no flick yet" : `flicked ${onsetAge}f ago`}`;
@@ -1075,7 +1172,7 @@ function processFrame(landmarks, shapes) {
   el.gestureAsym.textContent =
     `now  openL ${left.toFixed(3)}  openR ${right.toFixed(3)}  diff ${asym >= 0 ? "+" : ""}${asym.toFixed(2)}` +
     `  gap ${absDiff.toFixed(3)}/${limitsFor(signed > 0 ? 1 : -1).gate.toFixed(3)}` +
-    `  ${gestureHold}/${requiredVotes()}f${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
+    `  held ${Math.round(peakHeld)}/${gestureMode === "tilt" ? TILT_HOLD_MS : gestureHoldMs}ms${!poseReliable ? "  TURNED" : shaking ? "  SHAKING" : ""}\n` +
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${limitsFor(signed > 0 ? 1 : -1).threshold.toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
@@ -1100,9 +1197,39 @@ function decide(direction, shaking) {
     return;
   }
 
-  recent.push(direction);
-  while (recent.length > holdWindow()) recent.shift();
-  const votes = direction === 0 ? 0 : recent.filter((d) => d === direction).length;
+  // Held for two hundred milliseconds, not for six frames.
+  //
+  // Six frames is 200ms at 30 and half a second at 12, so the dwell that made
+  // a gesture deliberate grew and shrank with whatever else the iPad was
+  // doing. The window is time now, and the vote inside it is still a fraction
+  // rather than a run, because a landmark drops out for a frame and that
+  // should not undo the gesture.
+  recent.push({ at: frameNow, d: direction });
+  const span = (gestureMode === "tilt" ? TILT_HOLD_MS : gestureHoldMs) * 1.6;
+  while (recent.length > 2 && frameNow - recent[0].at > span) recent.shift();
+
+  // How long this direction has been going, and how cleanly.
+  //
+  // Measured from when it started rather than across a fixed buffer, so the
+  // frames before the gesture began do not count against it — and a landmark
+  // that drops out for a frame costs a vote rather than the whole gesture.
+  const agreeing = direction === 0 ? [] : recent.filter((e) => e.d === direction);
+  // A frame stands for the interval it ends, so the first agreeing frame is
+  // worth one sampling gap of dwell. Without that a gesture of exactly the
+  // hold length always measures one frame short of it — which at 30fps is the
+  // difference between a 200ms wink working and not.
+  const gap = recent.length > 1 ? (frameNow - recent[0].at) / (recent.length - 1) : 0;
+  const heldFor = agreeing.length ? frameNow - agreeing[0].at + gap : 0;
+  const sinceStart = agreeing.length
+    ? recent.filter((e) => e.at >= agreeing[0].at).length
+    : 0;
+  const votes = agreeing.length;
+  const needHeld = gestureMode === "tilt" ? TILT_HOLD_MS : gestureHoldMs;
+  // A millisecond of slack, because heldFor is a sum of floating point frame
+  // gaps and a gesture of exactly the hold length lands on 199.999999999998.
+  const held =
+    direction !== 0 && heldFor >= needHeld - 1 && votes / sinceStart >= VOTE_FRACTION;
+  if (heldFor > peakHeld) peakHeld = heldFor;
   gestureHold = votes;
   gestureDirection = direction;
 
@@ -1110,16 +1237,19 @@ function decide(direction, shaking) {
   // again every cooldown for as long as the eye stays shut, and holding a wink
   // a beat too long is the most natural thing in the world — so the eye has to
   // open again before the next one counts.
-  if (direction === 0) gestureLatched = false;
+  if (direction === 0) {
+    gestureLatched = false;
+    peakHeld = 0;
+  }
 
   if (
     !gestureLatched &&
-    votes >= holdFrames() &&
-    nowSeconds() - lastGestureAt > GESTURE_COOLDOWN_S
+    held &&
+    frameNow - lastGestureAt > GESTURE_COOLDOWN_S * 1000
   ) {
     gestureHold = 0;
     gestureLatched = true;
-    lastGestureAt = nowSeconds();
+    lastGestureAt = frameNow;
     const gesture = gestureMode === "tilt" ? "tilt" : "wink";
     state.turnedBy = gesture;
     // Say what the numbers were, every time, so a wrong turn explains itself
@@ -2997,6 +3127,8 @@ window.__autopage = {
   },
   get missingEls() { return missingEls; },
   get mode() { return gestureMode; },
+  get peakHeld() { return peakHeld; },
+  clearPeak() { peakHeld = 0; },
   get ready() { return landmarker !== null; },
   get threshold() { return asymThreshold(); },
   get calibration() { return calibration; },

@@ -37,6 +37,12 @@ page".
   page-turner pedal sends, so those work with no setup.
 - **Tapping** the outer sixth of either side of the score.
 
+A tilt is measured from **where your head rests**, not from level — the app
+watches where you sit and follows it, so a stand off to one side or a shift in
+the chair does not make one direction harder than the other. About **10 degrees,
+held briefly**, in either direction. Every gate is in milliseconds rather than
+frames, so a busy iPad dropping to 12fps turns pages the same as one at 30.
+
 ## Design constraints
 
 - **A missed turn is much better than a wrong turn.** Missing one costs a
