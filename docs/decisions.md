@@ -736,3 +736,37 @@ permission in the first place. So the folder-listing attempt is gone entirely
 rather than kept as a fallback, and a test asserts the app never asks Drive to
 list anything at all. Several folders chosen at once is not a direction, and
 says so.
+
+## The set grows, because the picker will not always give up more than one
+
+Google's picker decides for itself whether multi-select is on offer, and on a
+phone it often is not. `MULTISELECT_ENABLED` is set and the documentation says
+that is all there is to it; the device says otherwise, and there is nothing
+published about the combination. Rather than keep guessing at the picker, the
+set was made able to grow.
+
+After each pick the toast says what the Sunday has so far and offers **Add
+more**, which reopens the picker in the same folder and adds to the same set.
+If multi-select does work, that is one pick and one glance at the count. If it
+does not, it is a pick per song and the result is identical. Nothing depends on
+knowing which.
+
+One song does not become a Sunday. The first attempt made a set out of every
+single pick so that there would be something to add to, and the list filled
+with Sundays nobody meant — the count is carried forward instead, and the set
+is made once there are two songs to make it out of.
+
+Two bugs fell out of building it, both older than the feature:
+
+**Pruning an old Sunday deleted songs a newer one was still using.** A song
+played two weeks running is one stored score behind both sets, and dropping
+the older set deleted it out from under the newer one, which was left saying it
+had a song that was no longer there. Pruning and removal now keep anything a
+surviving Sunday still points at.
+
+**The chooser did not redraw when a set changed.** It had been relying on a
+thumbnail landing to trigger the redraw, which works only for songs that are
+new — add a song that has been in a set before and nothing redraws, so the set
+looks unchanged. It is drawn explicitly now, once, after the grouping is
+decided rather than before and after, which also removes a flicker where the
+songs appeared loose and then regrouped.

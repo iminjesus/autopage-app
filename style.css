@@ -901,6 +901,23 @@ a.btn-block {
   cursor: pointer;
 }
 
+/* The toast can offer the next step as well as report the last one. */
+.toast-action {
+  margin-left: 12px;
+  padding: 4px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* A problem is not progress, and should not wear progress's colour. */
 .drive-toast.is-problem {
   color: #ff9a8a;

@@ -197,8 +197,11 @@ check(await p.locator("#driveBtn").isVisible(), "the way in is on the first scre
 await answer([pdf("f-king"), pdf("f-build"), pdf("f-good")]);
 await askForDrive();
 await p.waitForFunction(() => window.__autopage.state.pageCount > 0, { timeout: 30000 });
+// Wait for the grouping, not for the tiles. The songs are stored before the
+// app decides whether they are a Sunday, so counting tiles is satisfied by a
+// state that has not finished happening.
 await p.waitForFunction(
-  () => document.querySelectorAll("#recent .recent-item").length >= 3, null, { timeout: 30000 }
+  () => document.querySelectorAll("#recent > .recent-head").length >= 1, null, { timeout: 30000 }
 );
 await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
 
@@ -318,6 +321,44 @@ const dec6 = (await groups()).find((x) => x.name === "Dec 6");
 check(dec6?.scores.length === 2, `choosing a folder gets you into it (${dec6?.scores.length ?? 0} songs)`);
 check((await p.evaluate(() => window.__opened))?.[1] === "dir-dec6",
   `and the second opening was inside that folder: ${JSON.stringify(await p.evaluate(() => window.__opened))}`);
+
+// --- One at a time, into the same Sunday ------------------------------------
+//
+// Google's picker decides for itself whether it will let somebody select more
+// than one thing at a time, and on a phone it often will not. The set has to
+// be able to grow rather than being whatever was caught in a single pass.
+FOLDERS = { "dir-dec13": { name: "Dec 13", parents: ["dir-worship"] }, "dir-worship": { id: "dir-worship" } };
+await p.evaluate(() => { window.__autopage.state.page = 1; });
+await answerEach([
+  [folder("dir-dec13", "Dec 13")],   // into the folder
+  [pdf("f-build", "dir-dec13")],     // and the picker only gives up one
+]);
+await askForDrive();
+await p.waitForFunction(() => {
+  const t = document.getElementById("driveToast");
+  return t && !t.hidden && t.textContent.includes("Dec 13");
+}, null, { timeout: 30000 });
+check((await p.locator("#driveToast").textContent()).includes("1 song"),
+  `one song is counted but is not yet a Sunday: "${await p.locator("#driveToast").textContent()}"`);
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+check(!(await groups()).some((x) => x.name === "Dec 13"),
+  "a single pick does not become a Sunday of its own");
+check(await p.locator(".toast-action").isVisible(), "and the next one is offered rather than assumed away");
+
+// Adding comes back to the same folder and the same set, not a second one.
+await answerEach([[pdf("f-good", "dir-dec13")]]);
+await p.locator(".toast-action").click();
+await p.waitForFunction(() => {
+  const t = document.getElementById("driveToast");
+  return t && !t.hidden && t.textContent.includes("2 songs");
+}, null, { timeout: 30000 });
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+const grown = (await groups()).filter((x) => x.name === "Dec 13");
+check(grown.length === 1 && grown[0].scores.length === 2,
+  `the Sunday grew instead of splitting in two: ${JSON.stringify(grown.map((x) => [x.name, x.scores.length]))}`);
+const reopened = await p.evaluate(() => window.__opened);
+check(reopened[reopened.length - 1] === "dir-dec13",
+  `and went straight back into the folder: ${JSON.stringify(reopened.slice(-2))}`);
 
 // --- Several folders at once is not a direction -----------------------------
 //

@@ -155,6 +155,12 @@ and the app never asks Drive to list anything.
 The folder's *name* is asked for, which is one question Drive usually will
 answer; if it will not, the set is named for the day.
 
+Google's picker decides for itself whether it will let you select more than one
+thing at a time, and on a phone it often will not. So the set **grows**: after
+each pick it says what it has — "Nov 29 — 3 songs" — with **Add more**, which
+comes straight back to the same folder and adds to the same Sunday. One song is
+still just a score; the Sunday is made once there are two to make it out of.
+
 The only permission asked for is **`drive.file`** — the songs you hand over in
 the picker, and nothing else in the drive. It is a non-sensitive scope, so
 there is no Google review and no security assessment behind it.

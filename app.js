@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23h drive-into";
+const BUILD = "2026-11-23i drive-more";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -1847,8 +1847,16 @@ async function rememberSet(name, ids) {
  */
 async function prune(keepSets = MAX_SETS, keepLoose = MAX_LOOSE) {
   const sets = await allSets();
+  const staying = sets.slice(0, keepSets);
+  // A song can be in two Sundays. Dropping the older Sunday must not take the
+  // newer one's copy of it with it — there is one stored score behind both,
+  // and deleting it leaves the Sunday that is still on the list missing a
+  // song it says it has.
+  const stillWanted = new Set(staying.flatMap((s) => s.order));
+
   for (const set of sets.slice(keepSets)) {
     for (const score of set.scores) {
+      if (stillWanted.has(score.id)) continue;
       await dbDo("readwrite", (store) => store.delete(score.id));
     }
     await dbDo("readwrite", (store) => store.delete(setKey(set.setId)));
@@ -1858,12 +1866,37 @@ async function prune(keepSets = MAX_SETS, keepLoose = MAX_LOOSE) {
   }
 }
 
+/**
+ * Add songs to a Sunday that already exists.
+ *
+ * Because picking them all at once is not always on offer. Google's picker
+ * decides for itself whether it will let somebody select more than one thing
+ * at a time, and on a phone it often will not — so the set has to be able to
+ * grow instead of being whatever was caught in a single pass.
+ */
+async function addToSet(setId, ids) {
+  const key = setKey(setId);
+  try {
+    const record = await dbDo("readonly", (store) => store.get(key));
+    if (!record?.order) return;
+    const order = [...record.order];
+    for (const id of ids) if (!order.includes(id)) order.push(id);
+    await dbDo("readwrite", (store) => store.put({ ...record, order, at: Date.now() }, key));
+  } catch (err) {
+    console.warn("could not add to the set:", err.message);
+  }
+}
+
 /** Forget a whole Sunday, scores and all. */
 async function removeSet(setId) {
-  const set = (await allSets()).find((s) => s.setId === setId);
+  const sets = await allSets();
+  const set = sets.find((s) => s.setId === setId);
   if (!set) return;
+  // Only the songs no other Sunday is holding on to.
+  const elsewhere = new Set(sets.filter((s) => s.setId !== setId).flatMap((s) => s.order));
   removed = { set, scores: set.scores };
   for (const score of set.scores) {
+    if (elsewhere.has(score.id)) continue;
     await dbDo("readwrite", (store) => store.delete(score.id));
   }
   await dbDo("readwrite", (store) => store.delete(setKey(setId)));
@@ -2258,12 +2291,30 @@ function showError(message) {
  * where the Drive button is reached from after that. A message that lands in
  * whichever one is hidden reads as nothing having happened at all.
  */
-function setProgress(message, kind = "busy") {
+function setProgress(message, kind = "busy", action = null) {
   const box = el.driveToast;
   if (!box) return;
-  box.textContent = message;
+  box.replaceChildren();
   box.hidden = !message;
   box.classList.toggle("is-problem", kind === "problem");
+  if (!message) return;
+
+  const said = document.createElement("span");
+  said.textContent = message;
+  box.append(said);
+
+  if (action) {
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "toast-action";
+    go.textContent = action.label;
+    go.addEventListener("click", (e) => {
+      e.stopPropagation(); // the toast dismisses on click; this does not
+      setProgress("");
+      action.run();
+    });
+    box.append(go);
+  }
 }
 
 /** A Drive problem, where it can actually be read. */
@@ -2338,14 +2389,21 @@ async function loadFiles(files) {
  * downloaded anything yet when it calls this and should not download a song
  * nobody can see yet.
  */
-async function adoptSet(items, setName) {
-  if (!items.length) return;
+/**
+ * @param defer  Leave the grouping to the caller and just return what was
+ *               stored. The Drive path needs this: whether these songs are a
+ *               Sunday depends on what arrives next, not on this pass.
+ */
+async function adoptSet(items, setName, { defer = false } = {}) {
+  if (!items.length) return null;
 
   // In the order they are named, which is the order a set is usually numbered.
   const sorted = [...items].sort((x, y) =>
     x.name.localeCompare(y.name, undefined, { numeric: true })
   );
 
+  let setId = null;
+  let stored = [];
   try {
     setBusy(true);
     const ids = [];
@@ -2359,7 +2417,9 @@ async function adoptSet(items, setName) {
     }
     setProgress("");
 
-    if (ids.length > 1) await rememberSet(setName, ids.map((x) => x.id));
+    const members = ids.map((x) => x.id);
+    stored = members;
+    if (!defer && members.length > 1) setId = await rememberSet(setName, members);
 
     const first = ids[0];
     const rec = await dbDo("readonly", (store) => store.get(first.id)).catch(() => null);
@@ -2368,13 +2428,23 @@ async function adoptSet(items, setName) {
     // The ones not opened have no picture yet, and the chooser is about to
     // show them. Draw them in the background rather than making anyone wait.
     for (const other of ids.slice(1)) thumbLater(other.id, other.bytes);
+
+    // And draw the list now, rather than relying on a thumbnail landing to do
+    // it: a song added to a Sunday it has been in before already has its
+    // picture, so nothing would have redrawn and the set would look unchanged.
+    //
+    // Not when the caller is still deciding what these songs are. Drawing them
+    // loose and then again as a Sunday is a visible flicker, and it is the
+    // ungrouped half that anything watching would catch first.
+    if (!defer) await renderRecent();
   } catch (err) {
     console.error("failed to open score:", err);
+    setProgress("");
     showError(`Could not open ${sorted[0].name} — ${err.message}`);
   } finally {
-    setProgress("");
     setBusy(false);
   }
+  return defer ? stored : setId;
 }
 
 // ============================================================
@@ -2622,8 +2692,8 @@ async function driveDownload(fileId, token) {
  * means when the folder cannot be read any other way. The hop count is only
  * there so that a strange answer cannot spin forever.
  */
-async function pickSongs(token) {
-  let openAt = await drivePickerRoot(token);
+async function pickSongs(token, startAt = null) {
+  let openAt = startAt ?? (await drivePickerRoot(token));
   for (let hop = 0; hop < 8; hop++) {
     const docs = await drivePicker(token, openAt);
     if (!docs.length) return []; // cancelled
@@ -2640,7 +2710,12 @@ async function pickSongs(token) {
   return [];
 }
 
-async function openFromDrive() {
+/**
+ * @param addTo    A set to add to, rather than starting a new one.
+ * @param openAt   The folder to open the picker in, skipping the hunt.
+ * @param soFar    Songs already collected on this trip through the picker.
+ */
+async function openFromDrive({ addTo = null, openAt = null, soFar = [] } = {}) {
   if (!GOOGLE_API_KEY) {
     driveProblem("Google Drive is not configured in this build.");
     return;
@@ -2659,7 +2734,7 @@ async function openFromDrive() {
     const token = await driveSignIn();
 
     setProgress("");
-    const docs = await pickSongs(token);
+    const docs = await pickSongs(token, openAt);
     if (!docs.length) return; // cancelled, which is not a failure
 
     const songs = docs.filter((d) => !isFolder(d) && isPdf(d));
@@ -2681,17 +2756,43 @@ async function openFromDrive() {
     // is called; otherwise the day does. The same answer says where next
     // Sunday's folder will turn up, so the picker can start there next time.
     setProgress("Naming the set…");
-    const info = await driveFolderInfo(sharedParent(unique), token);
+    const from = sharedParent(unique);
+    const info = await driveFolderInfo(from, token);
     if (info?.parents?.[0]) remember(DRIVE_ROOT_KEY, info.parents[0]);
     const named = info?.name ?? todayName();
 
-    await adoptSet(
+    const justStored = await adoptSet(
       unique.map((song) => ({
         name: song.name,
         bytes: () => driveDownload(song.id, token),
       })),
-      named
+      named,
+      { defer: true }
     );
+
+    // Whether these songs are a Sunday depends on what arrives next.
+    //
+    // Google's picker decides for itself whether it will let somebody select
+    // more than one thing at a time, and on a phone it often will not. So the
+    // set is made once there are two songs to make it out of — one song is a
+    // score, and turning every single pick into a Sunday of its own filled the
+    // list with Sundays nobody meant.
+    const collected = [...soFar, ...justStored.filter((id) => !soFar.includes(id))];
+    let setId = addTo;
+    if (collected.length > 1) {
+      if (setId) await addToSet(setId, justStored);
+      else setId = await rememberSet(named, collected);
+    }
+    await renderRecent(); // once, with the grouping already decided
+
+    // Offer the next one rather than assuming that was all of them.
+    if (from) {
+      const count = collected.length === 1 ? "1 song" : `${collected.length} songs`;
+      setProgress(`${named} — ${count}`, "done", {
+        label: "Add more",
+        run: () => openFromDrive({ addTo: setId, openAt: from, soFar: collected }),
+      });
+    }
   } catch (err) {
     console.warn("drive:", err);
     driveProblem(
