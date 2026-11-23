@@ -118,6 +118,22 @@ bookmark. A score is identified by its contents rather than its filename: the
 same piece arriving as "score.pdf" from three different places is one entry,
 not three that disagree.
 
+### Publishing the Google sign-in
+
+The consent screen starts in **Testing**, where only people added under *Test
+users* can sign in — everyone else gets `Error 403: access_denied`, which says
+the app "has not completed the Google verification process". That wording is
+about the publishing status, not about the scope.
+
+- **To let somebody in today:** add their Google address under *Test users*.
+  The cap is 100.
+- **To let anybody in:** publish the consent screen. That needs a home page and
+  a privacy policy (`privacy.html` here) on an **authorized domain**, and an
+  authorized domain has to be verified in Search Console. `github.io` is not a
+  domain anyone can verify ownership of, so publishing is expected to need a
+  custom domain pointed at this site. Nothing in the code has to change for
+  that — every URL the app builds comes from `location.href`.
+
 ### Opening a Sunday out of Google Drive
 
 **Google Drive** on the first screen, or **Open from Google Drive** in the

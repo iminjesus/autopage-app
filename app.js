@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23b steady-turn";
+const BUILD = "2026-11-23c privacy";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 

@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v33";
+const CACHE = "autopage-v34";
 
 // The face model lives in its own cache, and that name never changes.
 //
@@ -14,6 +14,7 @@ const ASSETS = [
   "./",
   "./index.html",
   "./share.html",
+  "./privacy.html",
   "./style.css",
   "./app.js",
   "./qr.js",

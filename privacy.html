@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AutoPage — Privacy</title>
+  <link rel="icon" href="icon.svg" />
+  <style>
+    /* Readable on a phone held at a music stand, and printable. Light, like
+       the share card: this one gets read in a browser tab, not in the dark. */
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; max-width: 42rem; padding: 40px 22px 80px;
+      background: #fff; color: #15171c;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16.5px; line-height: 1.6;
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    }
+    h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 34px 0 8px; letter-spacing: -0.01em; }
+    .updated { color: #8a909b; font-size: 14px; margin: 0 0 28px; }
+    p, li { color: #2c3038; }
+    ul { padding-left: 1.2em; }
+    li { margin: 6px 0; }
+    .lead {
+      background: #f4f5f7; border-radius: 13px; padding: 16px 18px;
+      font-size: 16px; margin: 0 0 8px;
+    }
+    strong { font-weight: 600; }
+    a { color: #2f5fe0; }
+    footer { margin-top: 44px; color: #8a909b; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>AutoPage — Privacy</h1>
+  <p class="updated">Last updated 23 November 2026</p>
+
+  <p class="lead">
+    AutoPage turns the pages of your sheet music when you tilt your head. It
+    runs entirely in your browser. <strong>It has no server of its own</strong>,
+    so there is nowhere for your camera, your music or anything about you to be
+    sent, and no account to make.
+  </p>
+
+  <h2>The camera</h2>
+  <ul>
+    <li>The camera is used only while a score is open and only to see the
+      gesture that turns the page.</li>
+    <li>Video is processed <strong>on your device</strong>, by face-detection
+      software that is downloaded to the device and runs there. No video frame,
+      image or face measurement ever leaves it.</li>
+    <li>Nothing is recorded. Frames are examined and discarded as they arrive.</li>
+    <li>No face is identified or recognised. What is measured is the angle of
+      your head and whether an eye is closed — not who you are.</li>
+    <li>The camera stops when you close the score or leave the page, and your
+      browser decides whether to grant it at all.</li>
+  </ul>
+
+  <h2>Your scores</h2>
+  <ul>
+    <li>PDFs you open are stored <strong>in your browser, on your device</strong>,
+      so that they are still there next time and still work with no network.</li>
+    <li>They are never uploaded. There is no copy of them anywhere else.</li>
+    <li>Alongside each score the app keeps the page you were last on, a small
+      picture of its first page for the chooser, and the date the songs were
+      grouped into a set.</li>
+    <li>You can remove any score, or a whole set, from the list inside the app.
+      Clearing your browser's site data for this site removes all of it.</li>
+  </ul>
+
+  <h2>Google Drive, if you use it</h2>
+  <p>
+    Opening scores from Google Drive is optional. Nothing below happens unless
+    you press that button and sign in.
+  </p>
+  <ul>
+    <li>The app asks Google for one permission, <code>drive.file</code>. That
+      covers <strong>only the files you yourself select</strong> in Google's
+      own file picker. The app cannot see, search or list the rest of your
+      Drive, and never asks to.</li>
+    <li>The files you pick are downloaded from Google straight to your device
+      and stored like any other score. They do not pass through any server
+      belonging to this app, because there is none.</li>
+    <li>The sign-in token is held in memory for as long as the page is open and
+      is <strong>never written to the device</strong>. Reloading the page
+      discards it.</li>
+    <li>You can withdraw this at any time at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+    <li>Nothing obtained from Google Drive is used for advertising, sold, or
+      given to anyone, and it is not used to train any model.</li>
+  </ul>
+
+  <h2>What is not collected</h2>
+  <ul>
+    <li>No analytics, no tracking, no advertising, no third-party scripts
+      following you.</li>
+    <li>No cookies are set by this app.</li>
+    <li>No account, no name, no email address, no contact details.</li>
+    <li>Your calibration and settings are saved in your browser on your device
+      and are not readable by anyone else.</li>
+  </ul>
+
+  <h2>Where it is served from</h2>
+  <p>
+    The app is published as static files on GitHub Pages. Serving any web page
+    involves the host seeing the request for it; GitHub's handling of that is
+    covered by
+    <a href="https://docs.github.com/site-policy/privacy-policies/github-privacy-statement">GitHub's privacy statement</a>.
+    Google sees the sign-in and the file downloads if you use Google Drive,
+    under
+    <a href="https://policies.google.com/privacy">Google's privacy policy</a>.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    The app collects nothing from anybody, of any age, so there is nothing held
+    about a child either.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If this ever changes — in particular if the app gains a server, an account
+    or any form of analytics — this page will say so and the date above will
+    change before the change ships.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions about any of this: please
+    <a href="https://github.com/iminjesus/autopage-app/issues">open an issue</a>.
+  </p>
+
+  <footer>
+    <a href="./">Back to AutoPage</a>
+  </footer>
+</body>
+</html>
