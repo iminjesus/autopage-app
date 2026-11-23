@@ -792,3 +792,34 @@ case and nothing at all for the flat one, which is the one these churches have.
 
 If this turns out not to be the cause, nothing is lost: the set grows by
 picking one at a time either way.
+
+## The picker will not multi-select on a phone, so it reopens instead
+
+Every switch the API offers has now been tried, on a real phone, one at a time:
+
+- `MULTISELECT_ENABLED` set — which the documentation says is all there is.
+- Folders kept out of the selection, in case a selection that might hold a
+  folder and three files was the objection.
+- `enableFeature` before `addView`, matching Google's own sample, in case the
+  builder cared about order after all.
+- List view instead of the grid of thumbnails, since a row per item is the
+  shape every multi-select on a phone takes. The view changed; the behaviour
+  did not.
+
+Tapping a second song still moves the selection to it. Long-press is not a
+picker gesture either — on a phone the browser takes it and offers to download
+the thumbnail. There is nothing left on this side of the widget.
+
+So the picker is reopened after every song, in the same folder, and **closing
+it is what says you are finished**. Two taps a song, and the player keeps
+tapping songs, which is the thing they were trying to do. The title carries the
+count and the instruction, because the title is the only line of ours on screen
+while the picker is up.
+
+A song tapped twice is still one song. The set is built in filename order at
+the end, not in the order they were tapped, so there is nothing to undo if they
+are collected out of order.
+
+The stopping condition is a close rather than a Done button, which is not ideal
+— but the ✕ is already there, and the alternative was a tap per song to ask for
+the next one. **Add more** stays for coming back to a Sunday later.

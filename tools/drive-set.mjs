@@ -70,7 +70,11 @@ const GAPI_STUB = `
         this.addView = () => this;
         this.enableFeature = () => this;
         this.setCallback = (f) => { cb = f; return this; };
-        this.setTitle = (t) => { window.__sawTitle = t; return this; };
+        this.setTitle = (t) => {
+          window.__sawTitle = t;
+          (window.__titles = window.__titles || []).push(t);
+          return this;
+        };
         this.build = () => ({ setVisible: () => setTimeout(() => {
           // A queue, because choosing a folder opens the picker again and the
           // second opening has to be able to answer differently.
@@ -156,18 +160,24 @@ const errorText = () => p.evaluate(() => {
   const e = document.getElementById("scoreError");
   return e.hidden ? "" : e.textContent;
 });
-const answer = (docs) => p.evaluate((d) => {
-  window.__answer = { action: "picked", docs: d };
-  window.__answers = [];
-}, docs);
-
-/** Successive answers, for a run that goes into a folder before picking. */
+/**
+ * Successive answers from the picker, one per opening.
+ *
+ * It has to be a sequence now rather than one standing answer: the picker
+ * reopens after every song, so an answer that repeats is a player who never
+ * stops picking. Once the list runs out the picker is closed, which is what
+ * says the Sunday is complete.
+ */
 const answerEach = (steps) => p.evaluate((list) => {
   window.__answers = list.map((docs) => ({ action: "picked", docs }));
   window.__answer = { action: "cancel" };
   window.__opened = [];
   window.__folderModes = [];
+  window.__titles = [];
 }, steps);
+
+/** One pass, then done. */
+const answer = (docs) => answerEach([docs]);
 
 /**
  * Ask for Drive the way somebody would, from wherever they are.
@@ -232,10 +242,16 @@ check(g[0].scores.join(" | ") === "01 Build My Life | 02 Goodness of God | 03 Ki
   `in numbered order, not the order Drive listed them: ${g[0].scores.join(" | ")}`);
 check(g[0].name === new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" }),
   `named for the day, there being no folder to name it after: "${g[0].name}"`);
-check((await p.evaluate(() => window.__folderPicking)) === true,
-  "folders stay selectable, because a folder that cannot be tapped cannot be entered either");
-check((await p.evaluate(() => window.__sawTitle ?? "")).includes("Sunday's folder"),
-  `and the picker says what it wants: "${await p.evaluate(() => window.__sawTitle)}"`);
+// The first opening, not the last: the picker reopens after every song, so
+// the latest values describe the end of the run rather than the start of it.
+const firstModes = await p.evaluate(() => window.__folderModes);
+const firstTitles = await p.evaluate(() => window.__titles);
+check(firstModes[0] === true,
+  `folders start selectable, because a folder that cannot be tapped cannot be entered either: ${JSON.stringify(firstModes)}`);
+check((firstTitles[0] ?? "").includes("Sunday's folder"),
+  `and the picker says what it wants: "${firstTitles[0]}"`);
+check((firstTitles[1] ?? "").includes("close when done"),
+  `then how to finish, once songs are going in: "${firstTitles[1]}"`);
 check((await p.evaluate(() => window.__autopage.state.name)) === "01 Build My Life.pdf",
   "and the first song is the one that opens");
 check(["f-build", "f-good", "f-king"].every((id) => hits.includes(`get:${id}`)),
@@ -299,8 +315,8 @@ await p.evaluate(() => { window.__autopage.state.page = 1; });
 await answer([pdf("f-build", "dir-gone")]);
 await askForDrive();
 await p.waitForTimeout(3000);
-check((await p.evaluate(() => window.__openedAt)) === null,
-  "a folder that is no longer reachable is not used as the picker's starting point");
+check((await p.evaluate(() => window.__opened))[0] === null,
+  `a folder that is no longer reachable is not used as the picker's starting point: ${JSON.stringify(await p.evaluate(() => window.__opened))}`);
 check((await p.evaluate(() => localStorage.getItem("autopage-drive-root"))) === null,
   "and is forgotten rather than retried every week");
 
@@ -335,8 +351,9 @@ check((await p.evaluate(() => window.__opened))?.[1] === "dir-dec6",
 // for choosing several songs able to choose exactly one.
 check((await p.evaluate(() => window.__viewMode)) === "list",
   `the picker is asked for a list, not a grid of thumbnails: ${await p.evaluate(() => window.__viewMode)}`);
-check(JSON.stringify(await p.evaluate(() => window.__folderModes)) === "[true,false]",
-  `folders are selectable to get in, and not once in: ${JSON.stringify(await p.evaluate(() => window.__folderModes))}`);
+const modes = await p.evaluate(() => window.__folderModes);
+check(modes[0] === true && modes.slice(1).every((m) => m === false),
+  `folders are selectable to get in, and not once in: ${JSON.stringify(modes)}`);
 
 // --- One at a time, into the same Sunday ------------------------------------
 //
@@ -377,6 +394,39 @@ check(grown.length === 1 && grown[0].scores.length === 2,
 const reopened = await p.evaluate(() => window.__opened);
 check(reopened[reopened.length - 1] === "dir-dec13",
   `and went straight back into the folder: ${JSON.stringify(reopened.slice(-2))}`);
+
+// --- Tapping song after song, which is what multi-select would have been ----
+//
+// Google's picker will not multi-select on a phone — not with the feature
+// enabled, not with folders kept out of the selection, not in list view, not
+// in the order its own sample uses. So it reopens after every song, and
+// closing it is what says the Sunday is complete.
+FOLDERS = { "dir-dec20": { name: "Dec 20", parents: ["dir-worship"] }, "dir-worship": { id: "dir-worship" } };
+await p.evaluate(() => { window.__autopage.state.page = 1; });
+await answerEach([
+  [folder("dir-dec20", "Dec 20")],
+  [pdf("f-build", "dir-dec20")],
+  [pdf("f-good", "dir-dec20")],
+  [pdf("f-king", "dir-dec20")],
+  [pdf("f-build", "dir-dec20")], // tapped twice, which is still one song
+]);
+await askForDrive();
+await p.waitForFunction(
+  () => [...document.querySelectorAll("#recent > .recent-head")]
+    .some((h) => h.firstChild.textContent === "Dec 20"),
+  null, { timeout: 30000 }
+);
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+const run = (await groups()).find((x) => x.name === "Dec 20");
+check(run?.scores.length === 3,
+  `four taps, one of them a repeat, make a Sunday of three (${run?.scores.length ?? 0})`);
+check(run?.scores.join(" | ") === "01 Build My Life | 02 Goodness of God | 03 King of Kings",
+  `in numbered order, not the order they were tapped: ${run?.scores.join(" | ")}`);
+const opens = await p.evaluate(() => window.__opened);
+// Six openings for four taps: one to choose the folder, four to tap songs in,
+// and the last one is the one that gets closed.
+check(opens.length === 6 && opens.slice(1).every((at) => at === "dir-dec20"),
+  `and every reopening was back in the same folder: ${JSON.stringify(opens)}`);
 
 // --- Several folders at once is not a direction -----------------------------
 //

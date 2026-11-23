@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23l drive-list";
+const BUILD = "2026-11-23m drive-keep-tapping";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2569,6 +2569,16 @@ const isFolder = (doc) => doc.mimeType === "application/vnd.google-apps.folder";
 const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.name ?? "");
 
 /**
+ * The one line of instruction there is room for, in the only place a player
+ * is looking while the picker is up.
+ */
+function pickerTitle(choosingFolder, gathered) {
+  if (choosingFolder) return "Pick the Sunday's folder";
+  if (gathered) return `${gathered} added — pick the next, or close when done`;
+  return "Pick a song — the picker reopens for the next";
+}
+
+/**
  * One pass of the picker, opened wherever we were told to open it.
  *
  * Folders are selectable, and that is deliberate even though drive.file will
@@ -2582,7 +2592,7 @@ const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.
  * a folder's contents; showing them to the player in Google's own picker is
  * not that, and never needed permission in the first place.
  */
-function drivePicker(token, openAt, { choosingFolder = true } = {}) {
+function drivePicker(token, openAt, { choosingFolder = true, gathered = 0 } = {}) {
   return new Promise((resolve) => {
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
       .setMimeTypes("application/pdf")
@@ -2615,9 +2625,7 @@ function drivePicker(token, openAt, { choosingFolder = true } = {}) {
       .setOAuthToken(token)
       .setAppId(GOOGLE_APP_ID)
       .addView(view)
-      .setTitle(
-        choosingFolder ? "Pick the Sunday's folder" : "Select the songs — tap each one"
-      )
+      .setTitle(pickerTitle(choosingFolder, gathered))
       .setCallback((data) => {
         const { Action } = window.google.picker;
         if (data.action === Action.PICKED) resolve(data.docs ?? []);
@@ -2713,19 +2721,41 @@ async function driveDownload(fileId, token) {
  * means when the folder cannot be read any other way. The hop count is only
  * there so that a strange answer cannot spin forever.
  */
+/**
+ * Collect the Sunday's songs, reopening the picker after each one.
+ *
+ * Google's picker will not multi-select on a phone. Not with the feature
+ * enabled, not with folders kept out of the selection, not in list view, and
+ * not in the order its own sample uses — tapping a second song moves the
+ * selection to it. Every switch the API offers has been tried.
+ *
+ * So the picker is reopened instead. Two taps a song, in the same folder,
+ * which is as close to ticking a list as this can be made; closing it is what
+ * says you are finished. The player keeps tapping songs, which is the thing
+ * they were trying to do.
+ */
 async function pickSongs(token, startAt = null, browse = false) {
   let openAt = startAt ?? (await drivePickerRoot(token));
   // "Add more" comes back inside a folder, where songs are what is wanted.
   // "Browse folders" comes back to the same place wanting to go deeper.
   let inside = Boolean(startAt) && !browse;
 
-  for (let hop = 0; hop < 8; hop++) {
-    const docs = await drivePicker(token, openAt, { choosingFolder: !inside });
+  const collected = [];
+  const seen = new Set();
+
+  // Generous, because it bounds a loop the player drives, not a retry.
+  for (let hop = 0; hop < 60; hop++) {
+    const docs = await drivePicker(token, openAt, {
+      choosingFolder: !inside,
+      gathered: collected.length,
+    });
 
     if (!docs.length) {
-      // Cancelled inside a folder, having taken nothing. That can mean the
-      // songs are a level further down and folders were not selectable there,
-      // so offer the way back rather than treating it as "never mind".
+      if (collected.length) return collected; // closing it is how you finish
+
+      // Closed inside a folder, having taken nothing. That can mean the songs
+      // are a level further down and folders were not selectable there, so
+      // offer the way back rather than treating it as "never mind".
       if (inside && openAt) {
         setProgress("Nothing picked.", "done", {
           label: "Browse folders",
@@ -2736,16 +2766,25 @@ async function pickSongs(token, startAt = null, browse = false) {
     }
 
     const songs = docs.filter((d) => !isFolder(d) && isPdf(d));
-    if (songs.length) return docs;
+    if (songs.length) {
+      for (const song of songs) {
+        if (seen.has(song.id)) continue; // tapped twice is still one song
+        seen.add(song.id);
+        collected.push(song);
+      }
+      openAt = openAt ?? sharedParent(songs);
+      inside = true;
+      continue; // straight back in for the next one
+    }
 
     const folders = docs.filter(isFolder);
-    if (folders.length !== 1) return docs; // several at once is not a direction
+    if (folders.length !== 1) return collected.length ? collected : docs;
 
     setProgress(`Opening ${folders[0].name}…`);
     openAt = folders[0].id;
     inside = true;
   }
-  return [];
+  return collected;
 }
 
 /**
