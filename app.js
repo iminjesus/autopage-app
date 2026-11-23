@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23d drive-tap";
+const BUILD = "2026-11-23e drive-says";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -74,7 +74,7 @@ for (const id of [
   "installHint", "installText", "installBtn", "shareBtn", "installDismiss", "qrBox",
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
-  "driveBtn", "panelDriveBtn", "driveStatus",
+  "driveBtn", "panelDriveBtn", "driveToast",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -2251,10 +2251,25 @@ function showError(message) {
  * Six songs off a church wifi is not instant, and a bar that sweeps without
  * saying anything is indistinguishable from a bar that is stuck.
  */
-function setProgress(message) {
-  if (!el.driveStatus) return;
-  el.driveStatus.textContent = message;
-  el.driveStatus.hidden = !message;
+/**
+ * Say it in both places, because only one of them is ever on screen.
+ *
+ * The first screen is gone the moment a score is open, and the Setup panel is
+ * where the Drive button is reached from after that. A message that lands in
+ * whichever one is hidden reads as nothing having happened at all.
+ */
+function setProgress(message, kind = "busy") {
+  const box = el.driveToast;
+  if (!box) return;
+  box.textContent = message;
+  box.hidden = !message;
+  box.classList.toggle("is-problem", kind === "problem");
+}
+
+/** A Drive problem, where it can actually be read. */
+function driveProblem(message) {
+  setProgress(message, "problem");
+  console.warn("drive:", message);
 }
 
 /**
@@ -2543,7 +2558,7 @@ async function driveDownload(fileId, token) {
 
 async function openFromDrive() {
   if (!GOOGLE_API_KEY) {
-    showError("Google Drive is not configured in this build.");
+    driveProblem("Google Drive is not configured in this build.");
     return;
   }
   showError("");
@@ -2576,10 +2591,9 @@ async function openFromDrive() {
     const unique = songs.filter((s) => !seen.has(s.id) && seen.add(s.id));
 
     if (!unique.length) {
-      setProgress("");
-      showError(
+      driveProblem(
         folder
-          ? `Google would not list what is inside ${folder.name}. Open the folder and select the songs themselves.`
+          ? `Google would not open ${folder.name} as a folder. Go into it and select the songs themselves.`
           : "Nothing in that selection was a PDF."
       );
       return;
@@ -2594,8 +2608,7 @@ async function openFromDrive() {
     );
   } catch (err) {
     console.warn("drive:", err);
-    setProgress("");
-    showError(
+    driveProblem(
       navigator.onLine
         ? `Could not open from Drive — ${err.message}`
         : "Opening from Drive needs a network. Scores already on the device still work."
@@ -2739,6 +2752,7 @@ async function loadSample() {
 on("sampleBtn", "click", loadSample);
 on("driveBtn", "click", openFromDrive);
 on("panelDriveBtn", "click", openFromDrive);
+on("driveToast", "click", () => setProgress("")); // read it, dismiss it
 on("driveBtn", "pointerdown", warmGoogle);
 on("panelDriveBtn", "pointerdown", warmGoogle);
 

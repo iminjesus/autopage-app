@@ -119,6 +119,8 @@ const groups = () =>
     }))
   );
 const errorText = () => p.evaluate(() => {
+  const note = document.getElementById("driveToast");
+  if (note && !note.hidden) return note.textContent;
   const e = document.getElementById("scoreError");
   return e.hidden ? "" : e.textContent;
 });
@@ -230,11 +232,20 @@ listingAnswer = { status: 403, files: [] };
 await answer([folder("dir-locked", "Epiphany")]);
 await askForDrive();
 await p.waitForFunction(() => {
-  const e = document.getElementById("scoreError");
-  return !e.hidden && e.textContent.includes("Epiphany");
+  const t = document.getElementById("driveToast");
+  return t && !t.hidden && t.textContent.includes("Epiphany");
 }, null, { timeout: 30000 });
 const said = await errorText();
-check(said.includes("Open the folder"), `it says what to do instead: "${said}"`);
+check(said.includes("select the songs themselves"), `it says what to do instead: "${said}"`);
+
+// And says it where it can be read. With a score open the first screen is
+// gone, so a message written only there is the same as no message at all —
+// which is exactly how "I pressed Select and nothing happened" happens.
+const note = p.locator("#driveToast");
+check(await note.isVisible() && (await note.textContent()).includes("Epiphany"),
+  "the problem is visible over the score, whatever is open and whatever is collapsed");
+check((await note.getAttribute("class")).includes("is-problem"),
+  "and reads as a problem rather than as progress");
 check(!(await groups()).some((x) => x.name === "Epiphany"), "and no empty Sunday is left behind");
 
 // Cancelling is not a failure.

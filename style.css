@@ -878,7 +878,31 @@ a.btn-block {
   margin: 12px 0 0;
 }
 
-/* What Drive is doing, in the quiet-note voice the screen already uses. */
-.drive-status {
-  color: var(--accent);
+/* What Drive is doing, over whatever is on screen.
+   Fixed, because the two places it used to be written to — the first screen
+   and the Setup panel — are each hidden most of the time, in different
+   circumstances. */
+.drive-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  z-index: 60;
+  max-width: min(92vw, 460px);
+  padding: 11px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--accent-strong);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  cursor: pointer;
+}
+
+/* A problem is not progress, and should not wear progress's colour. */
+.drive-toast.is-problem {
+  color: #ff9a8a;
+  border-color: rgba(255, 154, 138, 0.35);
 }

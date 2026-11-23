@@ -648,3 +648,27 @@ the first run of the frame-rate sweep said 30fps worked and nothing else did,
 which is a convincing wrong answer. And the offline test fed the app
 twenty-eight frames inside a single tight loop, which is no time at all once
 anything is measured in time.
+
+## A message in a hidden element is not a message
+
+"I pressed Select and nothing happened." The picker had opened, the real
+shared folders were listed, a folder was chosen — and then silence.
+
+Nothing had gone silently wrong. Drive had said what happened, into
+`#scoreError` on the first screen, which stops existing the moment a score is
+open. The Drive button that had just been pressed was the one in the Setup
+panel, which is only reachable *because* a score is open. The one path that
+can produce the message was the one path where it could not be read.
+
+Writing it into the panel as well was not the fix either, and the test caught
+that within the minute: the panel is collapsed most of the time, so the second
+place vanishes under different circumstances than the first. Two surfaces that
+each disappear sometimes is not redundancy.
+
+There is one surface now, fixed on top of everything, visible with a score open
+or not and with the panel open or not. Progress goes there, problems go there
+in a different colour, and a tap dismisses it.
+
+The lesson generalises past Drive: anything that can be triggered from the
+panel can be triggered while the first screen does not exist, so nothing that
+answers a panel action may answer onto the first screen.

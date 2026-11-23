@@ -44,9 +44,6 @@
           <button class="file-btn file-btn-quiet" id="startCalibrateBtn">Calibrate</button>
         </div>
 
-        <!-- Six songs off a church wifi is not instant, and a bar that sweeps
-             without saying anything looks the same as a bar that is stuck. -->
-        <p class="start-note drive-status" id="driveStatus" hidden></p>
 
         <!-- The last few scores, as first pages. Filled by the app. -->
         <div class="recent" id="recent" hidden></div>
@@ -144,6 +141,7 @@
              the iPad, so this is a first-class way in, not a convenience. -->
         <button class="btn btn-secondary btn-block" id="panelDriveBtn">Open from Google Drive</button>
 
+
         <!-- And again here, because a remembered score opens straight away
              and the first screen is not seen again. -->
         <div class="recent recent-panel" id="recentPanel" hidden></div>
@@ -232,5 +230,12 @@
     }, 2500);
   </script>
   <script type="module" src="app.js"></script>
+  <!-- What Drive is doing, over everything, wherever you are.
+       It had been written into the first screen, which is gone the moment a
+       score is open, and then also into the Setup panel, which is closed most
+       of the time. Two places that each vanish in different circumstances is
+       how "I pressed Select and nothing happened" happened twice. This one is
+       on top of the lot and survives both. -->
+  <div class="drive-toast" id="driveToast" hidden role="status"></div>
 </body>
 </html>

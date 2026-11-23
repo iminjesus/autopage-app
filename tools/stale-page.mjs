@@ -33,7 +33,7 @@ cpSync(join(app, "fixtures"), join(dir, "fixtures"), { recursive: true });
 
 // Whatever the newest additions to the page are. Deleting the most recently
 // added ones is what an old page actually looks like.
-const CUT = ["driveBtn", "panelDriveBtn", "driveStatus"];
+const CUT = ["driveBtn", "panelDriveBtn", "driveToast"];
 let html = readFileSync(join(dir, "index.html"), "utf8");
 for (const id of CUT) {
   const before = html;
