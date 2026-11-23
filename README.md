@@ -137,9 +137,15 @@ about the publishing status, not about the scope.
 ### Opening a Sunday out of Google Drive
 
 **Google Drive** on the first screen, or **Open from Google Drive** in the
-Setup panel. Sign in, select the week's songs, and they arrive as one set. If
-the folder itself can be selected it names the set; otherwise the set is named
-for the day and can be opened from a folder's contents just the same.
+Setup panel. Sign in, **go into the Sunday's folder and select the songs**, and
+they arrive as one set, named after the folder they came out of.
+
+Folders can be opened but not selected, on purpose. Under `drive.file` Google
+hands over a selected folder and nothing inside it — tried against a real
+shared drive, and refused — so offering the choice would only let somebody pick
+the obvious thing and get an apology. The folder's *name* is still asked for,
+which is one question Drive usually will answer; if it will not, the set is
+named for the day.
 
 The only permission asked for is **`drive.file`** — the songs you hand over in
 the picker, and nothing else in the drive. It is a non-sensitive scope, so

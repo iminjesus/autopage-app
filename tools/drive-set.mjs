@@ -50,7 +50,7 @@ const GAPI_STUB = `
       DocsView: function () {
         this.setMimeTypes = () => this;
         this.setIncludeFolders = () => this;
-        this.setSelectFolderEnabled = () => this;
+        this.setSelectFolderEnabled = (on) => { window.__folderPicking = on; return this; };
       },
       PickerBuilder: function () {
         let cb;
@@ -60,6 +60,7 @@ const GAPI_STUB = `
         this.addView = () => this;
         this.enableFeature = () => this;
         this.setCallback = (f) => { cb = f; return this; };
+        this.setTitle = (t) => { window.__sawTitle = t; return this; };
         this.build = () => ({ setVisible: () => setTimeout(() => cb(window.__answer), 0) });
       },
     };
@@ -80,6 +81,7 @@ const check = (ok, line) => { if (!ok) bad++; console.log(`${ok ? "ok  " : "FAIL
 // Google's side of the wire, in full.
 const hits = [];
 let listingAnswer = { status: 200, files: [] };
+let folderNameAnswer = null; // what Drive says the parent folder is called
 
 await p.route("**://accounts.google.com/gsi/client*", (r) => {
   hits.push("gsi");
@@ -98,6 +100,15 @@ await p.route("**://www.googleapis.com/drive/v3/files**", (r) => {
     const file = LIBRARY[id];
     if (!file) return r.fulfill({ status: 404, body: "no" });
     return r.fulfill({ status: 200, contentType: "application/pdf", body: file.body });
+  }
+  const single = url.pathname.match(/\/files\/([^/]+)$/);
+  if (single) {
+    hits.push(`meta:${single[1]}`);
+    if (folderNameAnswer === null) {
+      return r.fulfill({ status: 403, contentType: "application/json", body: '{"error":{"message":"no"}}' });
+    }
+    return r.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ name: folderNameAnswer }) });
   }
   hits.push("list");
   if (listingAnswer.status !== 200) {
@@ -139,7 +150,7 @@ const askForDrive = async () => {
   }
   await p.locator("#panelDriveBtn").click();
 };
-const pdf = (id) => ({ id, name: LIBRARY[id].name, mimeType: "application/pdf" });
+const pdf = (id, parentId) => ({ id, name: LIBRARY[id].name, mimeType: "application/pdf", parentId });
 const folder = (id, name) => ({ id, name, mimeType: "application/vnd.google-apps.folder" });
 
 // Folder names here are deliberately not dates. A folder called "Nov 23" is
@@ -186,6 +197,10 @@ check(g[0].scores.join(" | ") === "01 Build My Life | 02 Goodness of God | 03 Ki
   `in numbered order, not the order Drive listed them: ${g[0].scores.join(" | ")}`);
 check(g[0].name === new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" }),
   `named for the day, there being no folder to name it after: "${g[0].name}"`);
+check((await p.evaluate(() => window.__folderPicking)) === false,
+  "folders cannot be selected, because selecting one is a dead end under drive.file");
+check((await p.evaluate(() => window.__sawTitle ?? "")).includes("select its songs"),
+  `and the picker says what to do instead: "${await p.evaluate(() => window.__sawTitle)}"`);
 check((await p.evaluate(() => window.__autopage.state.name)) === "01 Build My Life.pdf",
   "and the first song is the one that opens");
 check(["f-build", "f-good", "f-king"].every((id) => hits.includes(`get:${id}`)),
@@ -201,6 +216,38 @@ await p.reload({ waitUntil: "networkidle" });
 await p.waitForFunction(() => window.__autopage.state.pageCount > 0, { timeout: 30000 });
 check(hits.filter((h) => h.startsWith("get:")).length === storedNow,
   "reopening asks Drive for nothing — the songs are on the device now");
+
+// --- Songs out of one Sunday's folder --------------------------------------
+//
+// The path that actually works. The folder cannot be selected, so the player
+// goes into it and picks the songs — and the set is still named for the
+// Sunday, because the one thing worth asking Drive about the folder is what it
+// is called.
+folderNameAnswer = "Nov 29";
+await p.evaluate(() => { window.__simClock = 0; });
+await answer([pdf("f-doxo", "dir-nov29"), pdf("f-build", "dir-nov29")]);
+await askForDrive();
+await p.waitForFunction(
+  () => [...document.querySelectorAll("#recent > .recent-head")]
+    .some((h) => h.firstChild.textContent === "Nov 29"),
+  null, { timeout: 30000 }
+);
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+const nov29 = (await groups()).find((x) => x.name === "Nov 29");
+check(nov29?.scores.length === 2,
+  `songs picked out of one folder are that folder's set (${nov29?.scores.length ?? 0})`);
+check(hits.includes("meta:dir-nov29"), "which took one question about the folder, and no listing of it");
+
+// And when Drive will not say what the folder is called, the day does.
+folderNameAnswer = null;
+await p.evaluate(() => { window.__autopage.state.page = 1; });
+await answer([pdf("f-king", "dir-quiet"), pdf("f-good", "dir-quiet")]);
+await askForDrive();
+await p.waitForTimeout(3000);
+await p.evaluate(() => { document.getElementById("scoreEmpty").hidden = false; });
+const today = new Date().toLocaleDateString(undefined, { day: "numeric", month: "short" });
+check((await groups()).some((x) => x.name === today || x.name.startsWith(today)),
+  `a folder Drive will not name falls back to the day: ${JSON.stringify((await groups()).map((x) => x.name))}`);
 
 // --- Picking the folder, when Drive allows it -------------------------------
 listingAnswer = { status: 200, files: ["f-doxo", "f-king"] };

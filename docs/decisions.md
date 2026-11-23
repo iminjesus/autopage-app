@@ -672,3 +672,25 @@ in a different colour, and a tap dismisses it.
 The lesson generalises past Drive: anything that can be triggered from the
 panel can be triggered while the first screen does not exist, so nothing that
 answers a panel action may answer onto the first screen.
+
+## drive.file gives you the folder and nothing in it
+
+The gamble is settled. Selecting a dated folder in the picker was tried against
+a real church's shared drive — the folders listed correctly, "Nov 29" was
+chosen, and the listing came back refused. Google hands over the folder itself
+and not one file inside it. The documentation still does not say so anywhere.
+
+So folders are **enterable but not selectable**. Leaving the choice there would
+only let somebody pick the obvious thing and receive an apology, and picking
+the folder *is* the obvious thing — it is how their Sunday is organised. The
+picker's title says what to do instead.
+
+The folder's name is not given up, though. That name is the whole point of a
+set: these churches name the folder for the Sunday it belongs to, often a date
+still in the future, which is better than anything the app could invent. The
+songs carry their parent's id, so one request asks what that parent is called.
+Drive may refuse that too — it granted the files, not their parent — and then
+the day names the set and nothing is lost but a nicer label.
+
+One request, not a listing. The difference matters: a listing is the thing that
+is refused, a name is the thing that usually is not.

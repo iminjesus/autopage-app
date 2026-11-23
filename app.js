@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23e drive-says";
+const BUILD = "2026-11-23f drive-songs";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -2499,21 +2499,20 @@ const isFolder = (doc) => doc.mimeType === "application/vnd.google-apps.folder";
 const isPdf = (doc) => doc.mimeType === "application/pdf" || /\.pdf$/i.test(doc.name ?? "");
 
 /**
- * Let them pick, with folders selectable as well as enterable.
+ * Let them go into the Sunday's folder and pick the songs.
  *
- * Whether selecting a folder actually hands over what is inside it is not
- * something drive.file's documentation answers, and the answer that comes back
- * from everyone who has tried is "no". It is offered anyway because the cost of
- * being wrong in that direction is one failed listing and a sentence telling
- * them to go into the folder and select the songs — and if it does work, a
- * Sunday is one tap.
+ * Folders are enterable but **not selectable**, because selecting one is a
+ * dead end: drive.file hands over the folder and not a thing inside it, which
+ * was tried against a real shared drive and refused. Offering a choice that
+ * cannot work is worse than not offering it — the player picks the folder,
+ * which is the obvious thing to do, and gets an apology.
  */
 function drivePicker(token) {
   return new Promise((resolve) => {
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
       .setMimeTypes("application/pdf")
       .setIncludeFolders(true)
-      .setSelectFolderEnabled(true);
+      .setSelectFolderEnabled(false);
 
     new window.google.picker.PickerBuilder()
       .setDeveloperKey(GOOGLE_API_KEY)
@@ -2521,6 +2520,7 @@ function drivePicker(token) {
       .setAppId(GOOGLE_APP_ID)
       .addView(view)
       .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
+      .setTitle("Open the Sunday's folder, then select its songs")
       .setCallback((data) => {
         const { Action } = window.google.picker;
         if (data.action === Action.PICKED) resolve(data.docs ?? []);
@@ -2529,6 +2529,30 @@ function drivePicker(token) {
       .build()
       .setVisible(true);
   });
+}
+
+/**
+ * What the folder these songs came out of is called.
+ *
+ * Worth one request: the folders are named for the Sunday they belong to, and
+ * that name is the whole point of a set. drive.file may well refuse to say —
+ * it granted the files, not their parent — in which case the set is named for
+ * the day instead and nothing is lost but a nicer label.
+ */
+async function driveFolderName(docs, token) {
+  const parents = new Set(docs.map((d) => d.parentId).filter(Boolean));
+  if (parents.size !== 1) return null; // songs from two places are not a Sunday
+  const id = [...parents][0];
+  try {
+    const res = await fetch(
+      `${DRIVE_API}/${encodeURIComponent(id)}?fields=name&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return null;
+    return (await res.json()).name ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** The PDFs inside a picked folder, or nothing if the scope will not show them. */
@@ -2599,12 +2623,17 @@ async function openFromDrive() {
       return;
     }
 
+    // The folder they came out of names the set when Google will say what it
+    // is called; otherwise the day does.
+    setProgress("Naming the set…");
+    const named = folder?.name ?? (await driveFolderName(docs, token)) ?? todayName();
+
     await adoptSet(
       unique.map((song) => ({
         name: song.name,
         bytes: () => driveDownload(song.id, token),
       })),
-      folder?.name ?? todayName()
+      named
     );
   } catch (err) {
     console.warn("drive:", err);
