@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23m drive-keep-tapping";
+const BUILD = "2026-11-23n camera-watchdog";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 
@@ -737,6 +737,8 @@ async function startGesture() {
   el.camPreview.srcObject = camStream;
   await el.camPreview.play();
 
+  lastSeenTime = -1;
+  lastAdvanceAt = performance.now();
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
   el.holdField.hidden = false;
   el.swapField.hidden = false;
@@ -747,6 +749,8 @@ async function startGesture() {
 function stopGesture() {
   clearInterval(gestureTimer);
   gestureTimer = null;
+  lastSeenTime = -1;
+  lastAdvanceAt = 0;
   gestureLatched = false;
   gestureHold = 0;
   if (camStream) camStream.getTracks().forEach((t) => t.stop());
@@ -1042,8 +1046,77 @@ function updateHeadPose(landmarks) {
   prevPoints = points.map((p) => ({ x: p.x, y: p.y, z: p.z }));
 }
 
+/**
+ * A camera that has stopped is the one failure nobody can see.
+ *
+ * This used to be `if (readyState < 2) return` and nothing else, so a video
+ * element that had been paused — which Android does freely after a full
+ * screen overlay, a sign-in window or a trip to another app — left the
+ * gesture dead with no sign of it anywhere. The score sits there and tilting
+ * your head does nothing, which is indistinguishable from the gesture being
+ * broken.
+ */
+const CAMERA_STALL_MS = 2500;
+let lastSeenTime = -1; // the video's own clock, which stops when it does
+let lastAdvanceAt = 0;
+let reviving = false;
+
+async function reviveCamera() {
+  if (reviving) return;
+  reviving = true;
+  setProgress("Restarting the camera…");
+  try {
+    // A paused element is the common case and the cheap one. Try that before
+    // asking for the camera again, which can prompt and always costs a second.
+    if (el.camPreview.paused) await el.camPreview.play().catch(() => {});
+
+    const track = camStream?.getVideoTracks?.()[0];
+    if (!camStream || !track || track.readyState === "ended") {
+      camStream?.getTracks().forEach((t) => t.stop());
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+      });
+      el.camPreview.srcObject = camStream;
+      await el.camPreview.play();
+    }
+    lastSeenTime = -1;
+    lastAdvanceAt = performance.now();
+    setProgress("");
+  } catch (err) {
+    setProgress("The camera stopped.", "problem", {
+      label: "Restart",
+      run: () => {
+        stopGesture();
+        startGesture().catch((e) => setProgress(`Camera: ${e.message}`, "problem"));
+      },
+    });
+  } finally {
+    reviving = false;
+  }
+}
+
 function onGestureFrame() {
-  if (!landmarker || el.camPreview.readyState < 2) return;
+  if (!landmarker) return;
+  const video = el.camPreview;
+  const now = performance.now();
+
+  // Whether the picture is moving, which is not the same question as whether
+  // the element is ready. A paused video still reports readyState 2 and still
+  // hands over its last frame for ever, so asking readiness finds nothing
+  // wrong while the gesture quietly reads one frozen face thirty times a
+  // second. Its own clock is the thing that stops.
+  if (video.currentTime !== lastSeenTime) {
+    lastSeenTime = video.currentTime;
+    lastAdvanceAt = now;
+  }
+  if (!lastAdvanceAt) lastAdvanceAt = now;
+
+  if (now - lastAdvanceAt > CAMERA_STALL_MS) {
+    reviveCamera();
+    return;
+  }
+  if (video.readyState < 2) return;
+
   try {
     gestureFrame();
   } catch (err) {
@@ -1637,7 +1710,11 @@ async function keepAwake() {
 // to a score that is still open should not mean coming back to a screen that
 // will go dark in two minutes.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.doc) keepAwake();
+  if (document.visibilityState !== "visible") return;
+  if (state.doc) keepAwake();
+  // Coming back is when the camera is most likely to have been paused behind
+  // our back, and it is also the moment somebody is about to need it.
+  if (gestureTimer && el.camPreview.paused) el.camPreview.play().catch(() => {});
 });
 
 const wakeState = () =>

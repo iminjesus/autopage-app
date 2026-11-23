@@ -37,6 +37,9 @@ page".
   page-turner pedal sends, so those work with no setup.
 - **Tapping** the outer sixth of either side of the score.
 
+If the camera is paused or taken by something else, the app notices within a
+couple of seconds and starts it again — and says so if it cannot.
+
 A tilt is measured from **where your head rests**, not from level — the app
 watches where you sit and follows it, so a stand off to one side or a shift in
 the chair does not make one direction harder than the other. About **10 degrees,

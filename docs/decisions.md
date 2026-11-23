@@ -823,3 +823,36 @@ are collected out of order.
 The stopping condition is a close rather than a Done button, which is not ideal
 — but the ✕ is already there, and the alternative was a tap per song to ask for
 the next one. **Add more** stays for coming back to a Sunday later.
+
+## A paused video still says it is ready
+
+The gesture stopped working again, right after the Drive flow had been
+exercised. Nothing in the gesture had changed and every gesture test passed,
+which by now is a familiar shape: the gesture code was fine and was not being
+reached with anything new.
+
+The loop began `if (!landmarker || camPreview.readyState < 2) return` and
+nothing else. Android pauses media freely — after a full screen overlay, a
+sign-in window, a trip to another app — and the Drive flow now involves all
+three. A paused element is exactly what you come back to.
+
+The trap is that **a paused video still reports `readyState` 2**. It has a
+frame; it just will not get another one. So the readiness check found nothing
+wrong while the gesture read one frozen face thirty times a second. No error,
+no message, no turns. The screen looks identical to a gesture that has broken.
+
+What stops when the picture stops is the video's own clock. `currentTime` not
+having moved for two and a half seconds is the signal, and from there the two
+real cases are told apart and handled: a paused element is played again, and a
+track that has ended — another app took the camera — is asked for afresh. If
+neither works, it says "The camera stopped" with a Restart, which is at least
+a thing somebody can act on.
+
+This was the fourth report of "it suddenly stopped working", and the third
+distinct cause. The first two were measured and fixed; this one hid behind an
+attribute that reports readiness for a video that is going nowhere.
+
+The test produces both cases against Chromium's fake camera — pause the
+element, and stop the track — and then checks that a tilt still turns the page
+afterwards, because a camera that comes back without driving the gesture is the
+same failure wearing a different face.
