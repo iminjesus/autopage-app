@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""A chord chart with real text in it, for the transposition probe.
+
+Not a pretty one — it only has to be the shape the probe has to read: chord
+symbols as their own text runs, sitting above a line of lyrics, with the
+positions that an overlay would have to land on. A scanned chart has none of
+that, which is exactly the difference being measured.
+"""
+import sys
+
+LINES = [
+    (("C", 72), ("Am", 180), ("F", 300), ("G", 420)),
+    (("What", 72), ("can", 150), ("wash", 215), ("a-", 300), ("way", 350), ("my", 420), ("sin", 470)),
+    (("F", 72), ("C/E", 180), ("Dm7", 300), ("G(sus4)", 420)),
+    (("Noth-", 72), ("ing", 150), ("but", 215), ("the", 300), ("blood", 350), ("of", 430), ("Je-sus", 470)),
+    (("Bb", 72), ("F#m", 180), ("Gmaj7", 300), ("A7", 420)),
+]
+
+
+def build() -> bytes:
+    parts = []
+    y = 700
+    for row in LINES:
+        size = 13 if row[0][0][0].isupper() and len(row[0][0]) <= 7 else 11
+        for text, x in row:
+            parts.append(f"BT /F1 {size} Tf {x} {y} Td ({text}) Tj ET")
+        y -= 36
+    content = ("\n".join(parts) + "\n").encode("latin-1")
+
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 540 760] "
+        b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    start = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
+
+
+if __name__ == "__main__":
+    open(sys.argv[1], "wb").write(build())

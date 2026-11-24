@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AutoPage — chord probe</title>
+  <link rel="icon" href="icon.svg" />
+  <style>
+    /* A diagnostic, not a feature. Nothing here is linked from the app and
+       nothing in the app imports it: the question is whether a real chord
+       chart carries its chords as text, and that has to be answered against
+       real charts before anything is built on the answer. */
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; max-width: 46rem; padding: 28px 18px 80px;
+      background: #0f1115; color: #e8eaed;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    }
+    h1 { font-size: 23px; margin: 0 0 6px; letter-spacing: -0.01em; }
+    p.lede { color: #9aa0ac; margin: 0 0 20px; font-size: 15px; line-height: 1.5; }
+    .pick {
+      display: inline-block; background: #4f7cff; color: #fff; font-weight: 600;
+      padding: 13px 22px; border-radius: 12px; cursor: pointer; font-size: 16px;
+    }
+    .verdict {
+      margin: 22px 0 0; padding: 16px 18px; border-radius: 13px;
+      background: #171a21; border: 1px solid rgba(255,255,255,0.09);
+      font-size: 15px; line-height: 1.6;
+    }
+    .verdict.good { border-color: rgba(110,231,160,0.4); }
+    .verdict.bad { border-color: rgba(255,154,138,0.4); }
+    .big { font-size: 19px; font-weight: 600; display: block; margin-bottom: 6px; }
+    .good .big { color: #6ee7a0; }
+    .bad .big { color: #ff9a8a; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .found { margin-top: 10px; color: #9aa0ac; word-break: break-word; }
+    canvas { max-width: 100%; height: auto; margin-top: 18px; border-radius: 10px; background: #fff; }
+    .hint { color: #9aa0ac; font-size: 13.5px; margin-top: 16px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>Chord probe</h1>
+  <p class="lede">
+    Open one of the real chord charts. This reads the PDF's text and reports
+    whether the chord symbols are there as text that can be found and placed —
+    which is what transposing them on the iPad would need. Nothing is uploaded;
+    it all happens here.
+  </p>
+
+  <label class="pick">
+    Open a chord chart
+    <input type="file" id="file" accept="application/pdf,.pdf" hidden />
+  </label>
+
+  <div id="out"></div>
+
+  <script type="module">
+    import * as pdfjsLib from "./vendor/pdf.js";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
+
+    // A chord symbol, whole. Deliberately strict: counting every stray "A" in
+    // the lyrics as a chord would answer the wrong question cheerfully.
+    const CHORD = /^[A-G][#b♯♭]?(?:maj|min|m|dim|aug|sus|add|°|ø|\+)?\d*(?:sus[24]|add\d+)?(?:\([^)]*\))?(?:\/[A-G][#b♯♭]?)?$/;
+    // What a chord looks like before the superscript parts get split off into
+    // their own text runs, which is how a lot of engravers emit them.
+    const STARTS = /^[A-G][#b♯♭]?(?:maj|min|m|dim|aug|sus|add|°|ø|\+|\d|\/|\(|$)/;
+
+    const out = document.getElementById("out");
+    document.getElementById("file").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) probe(file);
+    });
+
+    async function probe(file) {
+      out.innerHTML = '<div class="verdict">Reading…</div>';
+      try {
+        const bytes = await file.arrayBuffer();
+        const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+
+        let items = 0;
+        let strict = 0;
+        let loose = 0;
+        const samples = [];
+        const sizes = new Set();
+        let firstPage = null;
+
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          const text = await page.getTextContent();
+          const boxes = [];
+          for (const item of text.items) {
+            const s = (item.str ?? "").trim();
+            if (!s) continue;
+            items++;
+            const isChord = CHORD.test(s);
+            if (isChord) {
+              strict++;
+              if (samples.length < 24) samples.push(s);
+              sizes.add(Math.round(Math.abs(item.transform?.[3] ?? 0)));
+              boxes.push({ x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || 10 });
+            } else if (STARTS.test(s) && s.length <= 10) {
+              loose++;
+            }
+          }
+          if (n === 1) firstPage = { page, boxes };
+        }
+
+        const verdict = document.createElement("div");
+        const ok = strict >= 6;
+        verdict.className = `verdict ${ok ? "good" : "bad"}`;
+        verdict.innerHTML =
+          `<span class="big">${strict} chord symbols found</span>` +
+          `${doc.numPages} page${doc.numPages === 1 ? "" : "s"}, ` +
+          `${items} pieces of text in all` +
+          (loose ? `, ${loose} more that look chord-ish but did not match` : "") +
+          `.<br />Chord text sizes: ${[...sizes].sort((a, b) => a - b).join(", ") || "—"}` +
+          (samples.length ? `<div class="found mono">${samples.join("  ")}</div>` : "") +
+          (items === 0
+            ? "<div class='found'>No text at all — this is a scan, and nothing can be read out of it.</div>"
+            : ok
+              ? "<div class='found'>Boxes below show where they were found. If they sit on the chords, they can be replaced.</div>"
+              : "<div class='found'>Text is there but the chords are not coming out as their own pieces.</div>");
+        out.replaceChildren(verdict);
+
+        if (firstPage) await drawPage(firstPage);
+      } catch (err) {
+        out.innerHTML = `<div class="verdict bad"><span class="big">Could not read it</span>${err.message}</div>`;
+      }
+    }
+
+    // The decisive part. A count can be right while the positions are useless;
+    // boxes drawn on the page show both at once.
+    async function drawPage({ page, boxes }) {
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.min(2, 900 / base.width);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      ctx.strokeStyle = "rgba(79,124,255,0.9)";
+      ctx.lineWidth = 1.5;
+      for (const b of boxes) {
+        const x = b.x * scale;
+        const y = canvas.height - (b.y + b.h) * scale;
+        ctx.strokeRect(x - 2, y - 2, b.w * scale + 4, b.h * scale + 4);
+      }
+      out.append(canvas);
+
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        "Screenshot this and send it. The boxes landing on the chords is the " +
+        "answer; the number on its own is not.";
+      out.append(hint);
+    }
+  </script>
+</body>
+</html>
