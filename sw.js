@@ -18,6 +18,7 @@ const ASSETS = [
   "./style.css",
   "./app.js",
   "./qr.js",
+  "./licence.js",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",

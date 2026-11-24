@@ -26,6 +26,7 @@
 const BUILD = "2026-11-23n camera-watchdog";
 
 import * as pdfjsLib from "./vendor/pdf.js";
+import { readLicence, licenceProblem } from "./licence.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
@@ -46,6 +47,19 @@ const GOOGLE_CLIENT_ID =
   "239071426944-oilkavqvffm07q1tal7hncfuuhtv2g9f.apps.googleusercontent.com";
 const GOOGLE_API_KEY = "AIzaSyBtVu_Eqc0GtO2B9kbtOwLlN8I4YpW1ZPY";
 const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+
+/**
+ * The public half of the licence signing key.
+ *
+ * Empty means licensing is switched off and Drive is open to everybody, which
+ * is what every build before this one did. Put in what
+ * `tools/make-licence.mjs --new-keypair` prints and the gate appears; the
+ * private half stays off this machine and out of this repository.
+ *
+ * A variable rather than a constant only so that a test can switch licensing
+ * on with a key it generated itself, there being no key in here to test with.
+ */
+let licencePublicKey = "";
 
 // --- Tuning constants ---
 const MAX_CACHED_PAGES = 6;
@@ -75,6 +89,7 @@ for (const id of [
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "driveBtn", "panelDriveBtn", "driveToast",
+  "licenceRow", "licenceState", "licenceInput", "licenceKey", "licenceSave",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -2525,6 +2540,88 @@ async function adoptSet(items, setName, { defer = false } = {}) {
 }
 
 // ============================================================
+// Licences
+//
+// Opening scores off the device is free and always will be: it is the thing
+// that makes this worth passing on, and a page turner that asks for money
+// before it will turn a page would not get used at all. What a church pays
+// for is the week's folder arriving on its own — the part that only a church
+// has, and the part that took the work.
+// ============================================================
+
+const LICENCE_KEY = "autopage-licence";
+let licence = null; // {church, until} once one has been checked
+
+const licensing = () => Boolean(licencePublicKey);
+const driveAllowed = () => !licensing() || Boolean(licence);
+
+/** Check what is stored, and anything arriving in the address. */
+async function loadLicence() {
+  if (!licensing()) return;
+
+  // A link is the whole setup: opening it on the iPad is all anybody has to
+  // be told to do. Pasting a key into a settings panel is the fallback, not
+  // the instruction.
+  const fromUrl = new URL(location.href).searchParams.get("licence");
+  if (fromUrl) {
+    const read = await readLicence(fromUrl, licencePublicKey);
+    if (read.ok) {
+      remember(LICENCE_KEY, fromUrl);
+      // Out of the address bar, so it is not shared around by accident along
+      // with a screenshot or a bookmark.
+      history.replaceState(null, "", location.pathname);
+    } else {
+      setProgress(licenceProblem(read.why), "problem");
+    }
+  }
+
+  const stored = remembered(LICENCE_KEY);
+  if (!stored) {
+    // Still say so. Leaving the row off the panel when there is no licence
+    // hides the one explanation of why the Drive button answers back.
+    showLicence(null);
+    return;
+  }
+  const read = await readLicence(stored, licencePublicKey);
+  licence = read.ok ? { church: read.church, until: read.until } : null;
+  if (!read.ok && read.why === "expired") {
+    licence = null;
+  }
+  showLicence(read);
+}
+
+/** Take a key somebody has pasted in. */
+async function enterLicence(text) {
+  const read = await readLicence(text, licencePublicKey);
+  if (read.ok) {
+    remember(LICENCE_KEY, String(text).trim());
+    licence = { church: read.church, until: read.until };
+  }
+  showLicence(read);
+  return read;
+}
+
+function showLicence(read) {
+  if (!el.licenceState) return;
+  if (!licensing()) {
+    el.licenceRow.hidden = true;
+    return;
+  }
+  el.licenceRow.hidden = false;
+  if (licence) {
+    el.licenceState.textContent = `${licence.church} — Drive until ${licence.until}`;
+    el.licenceState.classList.remove("is-problem");
+    el.licenceInput.hidden = true;
+    return;
+  }
+  el.licenceState.textContent = read?.why
+    ? licenceProblem(read.why)
+    : "Opening from Google Drive needs a licence.";
+  el.licenceState.classList.add("is-problem");
+  el.licenceInput.hidden = false;
+}
+
+// ============================================================
 // Google Drive — a Sunday out of a shared folder
 //
 // Churches already keep the week's songs in a dated folder that somebody
@@ -2875,6 +2972,14 @@ async function openFromDrive({ addTo = null, openAt = null, soFar = [], browse =
     driveProblem("Google Drive is not configured in this build.");
     return;
   }
+  if (!driveAllowed()) {
+    driveProblem(
+      "Opening from Google Drive is the part churches subscribe to. " +
+        "Everything else here stays free — open the PDFs from this device."
+    );
+    collapseSetup(false); // the licence box is in there
+    return;
+  }
   showError("");
   try {
     if (!googleIsReady) setProgress("Connecting to Google…");
@@ -3095,6 +3200,10 @@ on("sampleBtn", "click", loadSample);
 on("driveBtn", "click", openFromDrive);
 on("panelDriveBtn", "click", openFromDrive);
 on("driveToast", "click", () => setProgress("")); // read it, dismiss it
+on("licenceSave", "click", async () => {
+  const read = await enterLicence(el.licenceKey.value);
+  if (read.ok) el.licenceKey.value = "";
+});
 on("driveBtn", "pointerdown", warmGoogle);
 on("panelDriveBtn", "pointerdown", warmGoogle);
 
@@ -3504,6 +3613,10 @@ if (missingEls.length) {
   showError("This page is out of date — reload to finish updating.");
 }
 
+// Licences are checked on the way in, so that a link opened on the iPad is
+// the whole setup and the panel already says who it belongs to.
+loadLicence().catch((err) => console.warn("licence:", err.message));
+
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
@@ -3520,6 +3633,16 @@ window.__autopage = {
     describeGesture();
   },
   get missingEls() { return missingEls; },
+  // Licensing is off in the shipped build until a public key is filled in, so
+  // a test has to be able to switch it on with a key it made itself.
+  async useLicenceKey(publicKeyB64) {
+    licencePublicKey = publicKeyB64;
+    licence = null;
+    await loadLicence();
+  },
+  get licence() { return licence; },
+  enterLicence,
+  driveAllowed,
   get mode() { return gestureMode; },
   get peakHeld() { return peakHeld; },
   clearPeak() { peakHeld = 0; },

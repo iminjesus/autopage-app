@@ -24,12 +24,15 @@ const here = new URL(".", import.meta.url).pathname;
 const app = join(here, "..");
 
 // A copy of the app with some elements cut out of its page.
+// The whole app, not a list of its files. A hand-kept list silently stops
+// being the app the moment anything is added to it — a new module left out of
+// the copy failed to import, the page died, and the test reported that as the
+// app being fragile rather than as its own fixture being short a file.
 const dir = mkdtempSync(join(tmpdir(), "autopage-stale-"));
-for (const f of ["app.js", "style.css", "qr.js", "manifest.json", "icon.svg", "index.html"]) {
-  cpSync(join(app, f), join(dir, f));
-}
-cpSync(join(app, "vendor"), join(dir, "vendor"), { recursive: true });
-cpSync(join(app, "fixtures"), join(dir, "fixtures"), { recursive: true });
+cpSync(app, dir, {
+  recursive: true,
+  filter: (src) => !/[\\/](?:\.git|node_modules|tools)(?:[\\/]|$)/.test(src),
+});
 
 // Whatever the newest additions to the page are. Deleting the most recently
 // added ones is what an old page actually looks like.

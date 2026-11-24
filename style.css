@@ -923,3 +923,41 @@ a.btn-block {
   color: #ff9a8a;
   border-color: rgba(255, 154, 138, 0.35);
 }
+
+/* The licence, in the panel beside the thing it unlocks. */
+.licence {
+  margin: 10px 0 4px;
+}
+
+.licence-state {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.licence-state.is-problem {
+  color: #ff9a8a;
+}
+
+.licence-entry {
+  display: flex;
+  gap: 8px;
+}
+
+.licence-entry input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #10131a;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.licence-entry .btn {
+  width: auto;
+  padding: 9px 14px;
+}

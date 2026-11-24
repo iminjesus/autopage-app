@@ -141,6 +141,17 @@
              the iPad, so this is a first-class way in, not a convenience. -->
         <button class="btn btn-secondary btn-block" id="panelDriveBtn">Open from Google Drive</button>
 
+        <!-- Only here when the build has licensing switched on. Opening a
+             score off the device never needs any of this. -->
+        <div class="licence" id="licenceRow" hidden>
+          <p class="licence-state" id="licenceState"></p>
+          <div class="licence-entry" id="licenceInput" hidden>
+            <input type="text" id="licenceKey" placeholder="Paste licence key"
+                   autocomplete="off" autocapitalize="off" spellcheck="false" />
+            <button type="button" class="btn btn-secondary" id="licenceSave">Save</button>
+          </div>
+        </div>
+
 
         <!-- And again here, because a remembered score opens straight away
              and the first screen is not seen again. -->
