@@ -856,3 +856,29 @@ The test produces both cases against Chromium's fake camera — pause the
 element, and stop the track — and then checks that a tilt still turns the page
 afterwards, because a camera that comes back without driving the gesture is the
 same failure wearing a different face.
+
+## Publishing cost nothing in the end, and the research said it would
+
+Three things were expected to stand between this and a church being able to
+use it. None of them did.
+
+`github.io` is indeed rejected as an authorized domain — it is a public suffix
+and nobody can prove they own it — but **`iminjesus.github.io` is accepted**.
+The forum reports that pointed at buying a custom domain were about verifying
+`github.io` itself, which is not the same question. No domain was needed.
+
+`drive.file` being non-sensitive meant no scope review, as the scope was chosen
+for in the first place. And no Search Console verification was asked for at
+all, so the plan to drop a verification file into the user-pages repo was never
+needed.
+
+The honest lesson is about the research rather than the result. Two searches
+came back with developer forums and blog posts and no official page, and the
+summary of them said to buy a domain. What settled it was pressing the button,
+which cost one minute and was available the whole time. A thing that can be
+tried directly should be tried before it is read about — and when it is read
+about, "the sources disagree and the official docs are silent" has to stay
+attached to the answer rather than being rounded off to the louder side.
+
+What remains true from all of it: do not upload a logo. That is brand
+verification, a separate review measured in weeks, and nothing here needs it.

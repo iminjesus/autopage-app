@@ -130,12 +130,22 @@ about the publishing status, not about the scope.
 
 - **To let somebody in today:** add their Google address under *Test users*.
   The cap is 100.
-- **To let anybody in:** publish the consent screen. That needs a home page and
-  a privacy policy (`privacy.html` here) on an **authorized domain**, and an
-  authorized domain has to be verified in Search Console. `github.io` is not a
-  domain anyone can verify ownership of, so publishing is expected to need a
-  custom domain pointed at this site. Nothing in the code has to change for
-  that — every URL the app builds comes from `location.href`.
+**It is published.** Status *In production*, which took filling in the Branding
+page — app name, support email, the home page and `privacy.html`, and
+`iminjesus.github.io` as the authorized domain — and pressing *Publish app*.
+
+Two things that were expected to be in the way were not. `github.io` is
+rejected as an authorized domain, being a public suffix nobody can prove they
+own, but **`iminjesus.github.io` is accepted**, so no custom domain is needed.
+And `drive.file` being non-sensitive meant no scope review and no security
+assessment. No Search Console verification was asked for either.
+
+The **OAuth user cap** on that page does not apply here: it counts users
+granting *unapproved sensitive or restricted* scopes, and this app asks for
+neither.
+
+Do not upload an app logo. That triggers brand verification, which is a
+separate review measured in weeks, and nothing needs it.
 
 ### Opening a Sunday out of Google Drive
 
