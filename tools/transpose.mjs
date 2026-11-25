@@ -31,17 +31,43 @@ is(down1("A"), "Ab", "and Ab, not G#");
 is(down1("C#m"), "Cm", "C#m down a semitone");
 
 const up1 = (c) => transposeChord(c, 1, spelling("D", 1));
-is(up1("D"), "Eb", "D up a semitone lands in Eb");
+is(up1("D"), "Eb", "D up a semitone lands in Eb, not D#");
 is(up1("B"), "C", "and B goes to C, not B#");
 
 is(transposeChord("B", 2, false), "C#", "B up a tone wraps round the octave");
 is(transposeChord("C", -1, true), "B", "and C down a semitone wraps the other way");
+
+// --- The twelve keys, as a worship chart names them ------------------------
+//
+// C Db D Eb E F Gb G Ab A Bb B. There is no key of D# or F#, and this is the
+// list a musician picks from in SongSelect, so it is the list that has to come
+// out of here. Five keys take sharps and seven take flats; that is the key
+// signature rather than a preference, and it settles the chords inside the
+// chart as much as the name on the front.
+const KEYS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+is(Array.from({ length: 12 }, (_, i) => keyName("C", i)).join(" "), KEYS.join(" "),
+  "the twelve keys, up from C");
+is(Array.from({ length: 12 }, (_, i) => keyName("C", i - 11)).join(" "),
+  KEYS.map((_, i) => KEYS[(i + 1) % 12]).join(" "),
+  "and the same twelve going down");
+
+// The chords inside each key have to agree with the name on the front: D
+// major takes F#m and F major takes Bb, and a musician notices that first.
+const inKey = (n) => ["C", "Dm", "Em", "F", "G", "Am"]
+  .map((c) => transposeChord(c, n, spelling("C", n))).join(" ");
+is(inKey(2), "D Em F#m G A Bm", "D major is spelled with sharps");
+is(inKey(5), "F Gm Am Bb C Dm", "F major is spelled with flats");
+is(inKey(3), "Eb Fm Gm Ab Bb Cm", "and so is Eb");
+is(inKey(1), "Db Ebm Fm Gb Ab Bbm", "and Db");
+is(inKey(9), "A Bm C#m D E F#m", "A major is sharps");
+is(inKey(11), "B C#m D#m E F# G#m", "and B");
 
 // --- Naming the key it ended up in -----------------------------------------
 is(keyName("D", 2), "E", "the key is read off the first chord");
 is(keyName("Em", 2), "F#m", "a minor chart stays minor");
 is(keyName("Dm", -2), "Cm", "Dm down a tone");
 is(keyName("Em", 1), "Fm", "a minor key is spelled from its relative major");
+is(keyName("Am", 4), "C#m", "which is what keeps C#m from turning into Dbm");
 is(keyName("What", 2), null, "a chart whose first text is not a chord has no key to name");
 
 // --- Everything that is not a chord ----------------------------------------

@@ -11,9 +11,19 @@ const SHARPS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 const FLATS = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
 const PITCH = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
-// Which keys are written with flats. Not a preference — a chart in Eb that
-// comes back saying D# is a chart nobody wants to read at speed.
-const FLAT_KEYS = new Set([1, 3, 5, 8, 10]); // Db Eb F Ab Bb
+/**
+ * The twelve keys, as a worship chart names them:
+ *
+ *   C  Db  D  Eb  E  F  Gb  G  Ab  A  Bb  B
+ *
+ * Five of them are written with sharps and the other seven with flats, which
+ * is not a preference but the key signature: there is no key of D# or F#, and
+ * a chart in Eb that comes back saying D# is one nobody wants to read at
+ * speed. It settles the chords inside the chart too — D major takes F#m, F
+ * major takes Bb, and getting that backwards is the thing a musician notices
+ * first.
+ */
+const SHARP_KEYS = new Set([7, 2, 9, 4, 11]); // G D A E B
 
 /** A whole chord symbol and nothing else: no stray capital from the lyrics. */
 export const CHORD_RE =
@@ -44,14 +54,15 @@ const name = (pitch, flats) => (flats ? FLATS : SHARPS)[((pitch % 12) + 12) % 12
  *
  * Taken from the first chord, because the first chord of a worship chart is
  * the key often enough to be worth more than asking. A minor first chord
- * points at its relative major, which is the key the accidentals belong to.
+ * points at its relative major, which is the key the accidentals belong to —
+ * and is why C#m stays C#m rather than turning into Dbm.
  */
 export function spelling(firstChord, semitones) {
   const chord = parseChord(firstChord);
   if (!chord) return false;
   const minor = /^(m|min|ø|°|dim)/.test(chord.quality) && !/^maj/.test(chord.quality);
   const key = (chord.pitch + semitones + (minor ? 3 : 0) + 12) % 12;
-  return FLAT_KEYS.has(key);
+  return !SHARP_KEYS.has(key);
 }
 
 /** The same chord, that many semitones up. Returns null if it is not a chord. */
