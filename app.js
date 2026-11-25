@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25f natural-step";
+const BUILD = "2026-11-25g steady-start";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { spelling, keyName, parseChord } from "./transpose.js";
@@ -369,6 +369,27 @@ function onHandFrame() {
  * ends that for good; the rest of this readout is four lines of numbers
  * already.
  */
+/**
+ * Put the gesture's state on the panel when nothing else will.
+ *
+ * The diagnostics line is written by the frame loop, so while the loop is not
+ * running it says whatever it said last — which, when the loop never started,
+ * is nothing at all. The one state somebody most needs to read is the one
+ * state that had no way of being written.
+ */
+function showGestureState() {
+  if (!el.gestureAsym || gestureTimer) return;
+  el.gestureAsym.textContent = gestureLine().trim() + handLine();
+}
+
+/** Whether the gesture is running at all, for the diagnostics line. */
+function gestureLine() {
+  if (gestureTimer) return "";
+  if (starting) return "\ngesture  starting the camera…";
+  if (!gestureWanted) return "\ngesture  not running — tap Allow, or the sides to turn pages";
+  return `\ngesture  not running — trying again (${retries}/${RETRY_TIMES})`;
+}
+
 function handLine() {
   if (thumbsOn) return `\nhand  ${handReport}`;
   if (!firstChord) return "\nhand  off — no chord symbols on this score";
@@ -563,7 +584,8 @@ async function openScore(bytes, name, startPage = 1, id = null) {
   // And this is the moment the gesture is about to be wanted. If the camera is
   // not already running, starting it here is what pulls the model down — while
   // there is still, presumably, a network.
-  if (!landmarker) beginWatching();
+  gestureWanted = true;
+  if (!gestureTimer) beginWatching();
 
   await showPage(state.page);
   render();
@@ -866,6 +888,20 @@ const ROLL_WINDOW_MS = 300; // the span ROLL_RATE is measured over
 let landmarker = null;
 let camStream = null;
 let gestureTimer = null;
+
+// Starting the camera, and keeping it started.
+//
+// Declared here with the rest of the gesture's state rather than beside the
+// functions that use them: these are read by the diagnostics line and by
+// openScore, both of which can run before the bottom of this file has been
+// reached, and a let read before its declaration is a crash rather than an
+// undefined.
+let starting = null; // the attempt in flight, shared by every caller
+let gestureWanted = false; // a score is open and nobody refused the camera
+let retries = 0;
+let retryTimer = null;
+const RETRY_EVERY_MS = 4000;
+const RETRY_TIMES = 5;
 let gestureHold = 0;
 // The longest a direction has been held since this was last cleared. Kept so
 // that "how long does this movement actually read as a gesture?" is a number
@@ -1065,34 +1101,74 @@ function thresholdFrom(noiseLevel, winkLevel) {
 
 const asymThreshold = () => calibration?.threshold ?? DEFAULT_ASYM_THRESHOLD;
 
-async function startGesture() {
-  if (landmarker) return;
-
-  // Imported here rather than at the top: the model and its runtime are 13MB,
-  // and someone who never turns this on should never pay for them.
-  const { FaceLandmarker, FilesetResolver } = await import("./vendor/mediapipe/vision_bundle.js");
-  const fileset = await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
-  landmarker = await FaceLandmarker.createFromOptions(fileset, {
-    baseOptions: { modelAssetPath: "./vendor/mediapipe/face_landmarker.task" },
-    outputFaceBlendshapes: true,
-    runningMode: "VIDEO",
-    numFaces: 1,
+/**
+ * Start the camera and the face model, once, and all or nothing.
+ *
+ * Three things went wrong here and each of them looked like "the gesture
+ * sometimes does not work when I open it".
+ *
+ * `landmarker` was assigned before the camera was asked for, so a getUserMedia
+ * that failed — another app holding the camera, a permission prompt answered
+ * late, any transient — left the model in place with no timer running. Every
+ * later attempt then hit `if (landmarker) return` and did nothing at all,
+ * reporting success. Closing the app and opening it again cleared the module
+ * and it worked, which is exactly the shape of the complaint.
+ *
+ * There was no guard against two attempts overlapping either. The model takes
+ * about a second to build, and anything that asked again inside that second
+ * passed the same empty check: two models, two camera streams, two intervals,
+ * and only one of each ever stopped again.
+ *
+ * So nothing becomes the app's state until all of it has worked, a failure
+ * puts back what it took, and a second caller waits on the first.
+ */
+function startGesture() {
+  if (gestureTimer) return Promise.resolve(); // running is the only "started"
+  if (starting) return starting; // one attempt at a time, shared by all callers
+  starting = openCamera().finally(() => {
+    starting = null;
   });
+  return starting;
+}
 
-  // 720p, not VGA. On a stand the face is 50-70cm away and small in frame, and
-  // at VGA an eyelid gap is a handful of pixels there — which is the measurement
-  // running out, not a threshold needing a nudge. Asked for as `ideal` so a
-  // camera that cannot manage it still starts.
-  camStream = await navigator.mediaDevices.getUserMedia({
-    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
-  });
-  el.camPreview.srcObject = camStream;
-  // A play() that a newer load supersedes rejects with AbortError, and that
-  // is not a failure — the newer load is the one that matters. Letting it
-  // throw here abandoned the rest of this function and left the camera half
-  // started, with no timer watching it and nothing on screen to say so.
-  await el.camPreview.play().catch(() => {});
+async function openCamera() {
+  let marker = null;
+  let stream = null;
+  try {
+    // Imported here rather than at the top: the model and its runtime are
+    // 13MB, and someone who never turns this on should never pay for them.
+    const { FaceLandmarker, FilesetResolver } =
+      await import("./vendor/mediapipe/vision_bundle.js");
+    const fileset = await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
+    marker = await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: "./vendor/mediapipe/face_landmarker.task" },
+      outputFaceBlendshapes: true,
+      runningMode: "VIDEO",
+      numFaces: 1,
+    });
 
+    // 720p, not VGA. On a stand the face is 50-70cm away and small in frame,
+    // and at VGA an eyelid gap is a handful of pixels there — which is the
+    // measurement running out, not a threshold needing a nudge. Asked for as
+    // `ideal` so a camera that cannot manage it still starts.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+    });
+
+    el.camPreview.srcObject = stream;
+    // A play() that a newer load supersedes rejects with AbortError, and that
+    // is not a failure — the newer load is the one that matters.
+    await el.camPreview.play().catch(() => {});
+  } catch (err) {
+    // Put back everything that did work, so the next attempt starts clean
+    // rather than finding half of one already in place.
+    marker?.close();
+    stream?.getTracks().forEach((t) => t.stop());
+    throw err;
+  }
+
+  landmarker = marker;
+  camStream = stream;
   lastSeenTime = -1;
   lastAdvanceAt = performance.now();
   if (thumbsOn) startHands().catch((err) => console.warn("hands:", err.message));
@@ -1104,6 +1180,9 @@ async function startGesture() {
 }
 
 function stopGesture() {
+  gestureWanted = false;
+  clearInterval(retryTimer);
+  retryTimer = null;
   stopHands();
   clearInterval(gestureTimer);
   gestureTimer = null;
@@ -1528,7 +1607,7 @@ function processFrame(landmarks, shapes, now = performance.now()) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
     } else {
-      el.gestureAsym.textContent = `no face in frame${handLine()}`;
+      el.gestureAsym.textContent = `no face in frame${gestureLine()}${handLine()}`;
     }
     return;
   }
@@ -3680,18 +3759,54 @@ on("prevBtn", "click", () => {
  * without anything to switch on. If it is refused or blocked, a button appears
  * to try again rather than the app quietly doing nothing.
  */
+/**
+ * Keep asking, when it should be running and is not.
+ *
+ * Every cause of "it did not start this time" found so far has been a
+ * transient — a camera another app had not let go of yet, a permission
+ * answered late, a model fetch that lost the network for a second. The fix
+ * for each was not to make the first attempt infallible but to make the
+ * second attempt possible, and then to make it happen without being asked.
+ *
+ * Not after a refusal. Somebody who said no to the camera must not be asked
+ * again every few seconds, so a denial stops this for good and the Allow
+ * button is what starts it again.
+ */
+function watchGesture() {
+  clearInterval(retryTimer);
+  retryTimer = setInterval(() => {
+    if (!gestureWanted || gestureTimer || starting) return;
+    if (retries >= RETRY_TIMES) return;
+    retries++;
+    console.warn(`gesture not running; attempt ${retries}`);
+    beginWatching();
+    showGestureState();
+  }, RETRY_EVERY_MS);
+}
+
 async function beginWatching() {
   el.allowBtn.hidden = true;
   setCardMessage("");
   showWatch();
+  // Before the attempt, not after it. Started inside the success path, the
+  // watchdog only ever existed once there was nothing left for it to do.
+  watchGesture();
+  showGestureState();
   try {
     await startGesture();
+    gestureWanted = true;
+    retries = 0;
     showCalibrationState();
     showOfflineState();
   } catch (err) {
+    // A refusal is an answer, not a transient. Asking again every few seconds
+    // would be worse than not working.
+    const refused = err?.name === "NotAllowedError" || err?.name === "SecurityError";
+    if (refused) gestureWanted = false;
     el.allowBtn.hidden = false;
     setCardMessage(`No camera — ${err.message}.\nTap the sides of the score to turn pages.`);
   }
+  showGestureState();
   render();
 }
 
@@ -3709,13 +3824,13 @@ on("cancelCalibBtn", "click", startCalibration); // a second press cancels
  * now, so this has to start it first.
  */
 on("startCalibrateBtn", "click", async () => {
-  if (!landmarker) {
+  if (!gestureTimer) {
     el.startCalibrateBtn.disabled = true;
     el.startCalibrateBtn.textContent = "Starting camera…";
     await beginWatching();
     el.startCalibrateBtn.disabled = false;
     el.startCalibrateBtn.textContent = "Calibrate";
-    if (!landmarker) return; // beginWatching has already said why
+    if (!gestureTimer) return; // beginWatching has already said why
   }
   startCalibration();
 });
@@ -3910,6 +4025,9 @@ window.__autopage = {
   get thumbUpSteps() { return thumbUpSteps(); },
   get keyShift() { return transposeBy; },
   get faceFrames() { return faceFrames; },
+  get running() { return Boolean(gestureTimer); },
+  startGesture,
+  get retries() { return retries; },
   get handReport() { return handReport; },
   get mode() { return gestureMode; },
   get peakHeld() { return peakHeld; },

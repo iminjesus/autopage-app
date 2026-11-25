@@ -1038,3 +1038,39 @@ it wraps.
 Both were found by a test that walked the ladder and printed what it got
 — `C D E F G G G` — which is the kind of wrong answer that a pass/fail
 assertion alone would have reported as simply false.
+
+## "Sometimes it does nothing when I open it, and reopening fixes it"
+
+Reopening fixing it was the clue. Nothing about reopening touches the camera;
+what it clears is the module. So the app was getting into a state no later
+attempt could get out of, and three faults in `startGesture` put it there.
+
+**The model was built before the camera was asked for.** `landmarker` was
+assigned, then `getUserMedia` was called — so a camera that refused, for any
+of the ordinary reasons another application or a late permission produces,
+threw with the model already in place. Every attempt after that hit
+`if (landmarker) return` and returned **reporting success**, which hid the
+only state worth reporting. Nothing becomes the app's state now until all of
+it has worked, and a failure puts back what it took.
+
+**Two attempts could overlap.** The model takes about a second to build, and
+anything that asked again inside that second passed the same empty check: two
+models, two streams, two intervals, and only one of each ever stopped. The
+attempt in flight is shared now, so three callers open one camera.
+
+**Nothing retried.** Every cause found so far has been a transient, and the
+answer to a transient is not an infallible first attempt but a second one
+that happens without being asked. It retries every four seconds, five times.
+Not after a refusal: somebody who said no must not be asked again every four
+seconds, so `NotAllowedError` stops it and the Allow button is what starts it
+again.
+
+Two of those fixes did not work when first written, and in the same way: the
+retry timer was started inside the success path, so it only existed once there
+was nothing left for it to do, and the panel's gesture line was written by the
+frame loop, so the one state somebody most needs to read — the loop never
+started — was the one state that had no way of being written. Both now happen
+before the attempt rather than after it.
+
+The test opens the app against a camera that refuses the first time, and
+checks that nobody has to do anything about it.

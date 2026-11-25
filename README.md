@@ -72,7 +72,11 @@ face model's thirty: measured at 22fps for the face with it running, against
 29fps without, which is well inside what the page turn needs.
 
 If the camera is paused or taken by something else, the app notices within a
-couple of seconds and starts it again — and says so if it cannot.
+couple of seconds and starts it again — and says so if it cannot. A camera
+that refuses to open at all is retried every four seconds, five times, with
+the panel saying which attempt it is on. A camera somebody has actually
+refused is asked once and then left alone, because that is an answer rather
+than a transient.
 
 A tilt is measured from **where your head rests**, not from level — the app
 watches where you sit and follows it, so a stand off to one side or a shift in

@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v51";
+const CACHE = "autopage-v52";
 
 // The face model lives in its own cache, and that name never changes.
 //
