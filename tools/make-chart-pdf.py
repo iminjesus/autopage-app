@@ -8,6 +8,17 @@ that, which is exactly the difference being measured.
 """
 import sys
 
+# Chords packed as tightly as a real hymn sheet packs them. The spacing is
+# the point: with neighbours this close, a patch that picks its colour from a
+# single pixel beside the box lands on the next chord's ink and paints the
+# gap black.
+TIGHT = [
+    (("Ab", 72), ("Db", 118), ("Ab/C", 162), ("Ab", 230), ("Ab/C", 272), ("Db/F", 334)),
+    (("Guide", 72), ("me", 118), ("O", 162), ("Thou", 230), ("great", 272), ("Je", 334)),
+    (("Ab", 72), ("Db/F", 112), ("Db", 168), ("Bbm7", 212), ("Ab/Eb", 268), ("Eb7", 330)),
+    (("Pil-", 72), ("grim", 112), ("through", 168), ("this", 212), ("bar", 268), ("ren", 330)),
+]
+
 LINES = [
     (("C", 72), ("Am", 180), ("F", 300), ("G", 420)),
     (("What", 72), ("can", 150), ("wash", 215), ("a-", 300), ("way", 350), ("my", 420), ("sin", 470)),
@@ -17,14 +28,14 @@ LINES = [
 ]
 
 
-def build() -> bytes:
+def build(rows=None, step=36) -> bytes:
     parts = []
     y = 700
-    for row in LINES:
+    for row in (rows if rows is not None else LINES):
         size = 13 if row[0][0][0].isupper() and len(row[0][0]) <= 7 else 11
         for text, x in row:
             parts.append(f"BT /F1 {size} Tf {x} {y} Td ({text}) Tj ET")
-        y -= 36
+        y -= step
     content = ("\n".join(parts) + "\n").encode("latin-1")
 
     objects = [
@@ -53,4 +64,8 @@ def build() -> bytes:
 
 
 if __name__ == "__main__":
-    open(sys.argv[1], "wb").write(build())
+    tight = "--tight" in sys.argv
+    # A real hymn sheet stacks chord row on lyric row with almost nothing
+    # between them, which is what puts a lyric's descender exactly where a
+    # patch looks for the colour of the paper.
+    open(sys.argv[1], "wb").write(build(TIGHT if tight else None, 17 if tight else 36))

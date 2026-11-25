@@ -204,7 +204,7 @@
         const top = y - h - pad;
         const boxH = h + pad + below;
 
-        ctx.fillStyle = backgroundAt(ctx, x, top, c.w * scale, boxH);
+        ctx.fillStyle = backgroundAround(ctx, x - pad, top, c.w * scale + pad * 2, boxH);
         ctx.fillRect(x - pad, top, c.w * scale + pad * 2, boxH);
 
         ctx.fillStyle = "#000";
@@ -223,16 +223,65 @@
       }
     }
 
-    /** The page's own colour just outside a box, so the patch disappears. */
-    function backgroundAt(ctx, x, y, w, h) {
-      const sx = Math.max(0, Math.round(x - 4));
-      const sy = Math.max(0, Math.round(y - 4));
+    /**
+     * The page's own colour around a box, so the patch disappears into it.
+     *
+     * The whole ring, not one pixel. A single sample is a coin toss on a real
+     * chart: the lyric line sits a few pixels above the chords, so the point
+     * just outside the corner lands on the descender of a "g" about as often
+     * as it lands on paper — and then the patch is painted in ink and leaves
+     * a black rectangle where the chord was. Which is exactly what happened.
+     *
+     * The commonest colour around the edge is the paper, because most of the
+     * edge is paper even when part of it is not.
+     */
+    function backgroundAround(ctx, x, y, w, h) {
+      const m = 3;
+      const sx = Math.max(0, Math.round(x - m));
+      const sy = Math.max(0, Math.round(y - m));
+      const sw = Math.min(ctx.canvas.width - sx, Math.round(w + m * 2));
+      const sh = Math.min(ctx.canvas.height - sy, Math.round(h + m * 2));
+      if (sw < 3 || sh < 3) return "#fff";
+
+      let data;
       try {
-        const px = ctx.getImageData(sx, sy, 1, 1).data;
-        return `rgb(${px[0]},${px[1]},${px[2]})`;
+        data = ctx.getImageData(sx, sy, sw, sh).data;
       } catch {
         return "#fff";
       }
+
+      const seen = new Map();
+      const note = (px, py) => {
+        const i = (py * sw + px) * 4;
+        // Quantised, so that the anti-aliased near-whites of a scan all count
+        // as the same paper rather than as a hundred different colours.
+        const key =
+          ((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4);
+        seen.set(key, (seen.get(key) ?? 0) + 1);
+      };
+      for (let px = 0; px < sw; px++) {
+        note(px, 0);
+        note(px, sh - 1);
+      }
+      for (let py = 1; py < sh - 1; py++) {
+        note(0, py);
+        note(sw - 1, py);
+      }
+
+      let best = null;
+      let bestCount = -1;
+      for (const [key, count] of seen) {
+        const lighter = best !== null && count === bestCount && key > best;
+        if (count > bestCount || lighter) {
+          best = key;
+          bestCount = count;
+        }
+      }
+      if (best === null) return "#fff";
+      const r = ((best >> 8) & 0xf) * 17;
+      const g = ((best >> 4) & 0xf) * 17;
+      const b = (best & 0xf) * 17;
+      return `rgb(${r},${g},${b})`;
     }
   </script>
 </body>
