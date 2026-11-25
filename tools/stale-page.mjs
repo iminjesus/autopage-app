@@ -24,16 +24,19 @@ const here = new URL(".", import.meta.url).pathname;
 const app = join(here, "..");
 
 // A copy of the app with some elements cut out of its page.
+// The whole app, not a list of its files. A hand-kept list silently stops
+// being the app the moment anything is added to it — a new module left out of
+// the copy failed to import, the page died, and the test reported that as the
+// app being fragile rather than as its own fixture being short a file.
 const dir = mkdtempSync(join(tmpdir(), "autopage-stale-"));
-for (const f of ["app.js", "style.css", "qr.js", "manifest.json", "icon.svg", "index.html"]) {
-  cpSync(join(app, f), join(dir, f));
-}
-cpSync(join(app, "vendor"), join(dir, "vendor"), { recursive: true });
-cpSync(join(app, "fixtures"), join(dir, "fixtures"), { recursive: true });
+cpSync(app, dir, {
+  recursive: true,
+  filter: (src) => !/[\\/](?:\.git|node_modules|tools)(?:[\\/]|$)/.test(src),
+});
 
 // Whatever the newest additions to the page are. Deleting the most recently
 // added ones is what an old page actually looks like.
-const CUT = ["driveBtn", "panelDriveBtn", "driveToast"];
+const CUT = ["keyRow", "keyBand", "driveToast"];
 let html = readFileSync(join(dir, "index.html"), "utf8");
 for (const id of CUT) {
   const before = html;
@@ -91,9 +94,12 @@ await p.keyboard.press("ArrowRight");
 await p.waitForTimeout(400);
 check((await p.evaluate(() => window.__autopage.state.page)) === 2, "and the pages still turn");
 
-// The missing button is the only thing that is missing.
-check(await p.locator("#fileInput").count() === 1 && (await p.locator("#driveBtn").count()) === 0,
-  "a button the page does not have costs you that button, and nothing else");
+// What was cut is missing, and nothing else is. Read off CUT rather than
+// named here, so that changing what gets cut cannot leave this checking for
+// an element the fixture still has.
+const gone = await p.evaluate((ids) => ids.filter((id) => !document.getElementById(id)), CUT);
+check(gone.length === CUT.length && (await p.locator("#fileInput").count()) === 1,
+  `what the page does not have costs you that and nothing else: ${gone.join(", ")}`);
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

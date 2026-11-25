@@ -18,6 +18,8 @@ const ASSETS = [
   "./style.css",
   "./app.js",
   "./qr.js",
+  "./transpose.js",
+  "./chord-paint.js",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",
