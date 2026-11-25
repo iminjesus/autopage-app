@@ -49,12 +49,17 @@ that is 95% transposed is worse than one nobody touched.
 The key belongs to the score, so the next song in the set starts where it was
 printed. Scores with no chord symbols never see the control.
 
+A band appears over the score for a few seconds when the key moves, saying
+where it went, and tapping it puts the chart back. It does not stay: a warning
+left on screen through a whole service is clutter, and clutter is what gets a
+feature turned off. What stays is the control, which says the key and says
+in words that only the chords moved.
+
 **Thumbs up raises the key a tone**, for the last chorus with both hands busy.
 Hold it for about a second; put your hand down before the next one. Thumbs
 down lowers it by a *semitone*, and can be switched off — the lopsidedness is
 deliberate, because up is a tone almost every time and down is the rarer,
-smaller correction. The band across the screen says where the key went and
-puts it back if you tap it.
+smaller correction. The band says where the key went and puts it back if you tap it.
 
 It is off until you turn it on, and only offered on a chart that has chords.
 Turning it on fetches an 8MB hand model once, which then belongs to the

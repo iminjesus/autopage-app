@@ -989,6 +989,14 @@ a.btn-block {
   cursor: pointer;
 }
 
+/* Said once, where the control is, rather than over the score for ever. */
+.key-note {
+  margin: -4px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 /* A setting that only means anything while the one above it is on. */
 .field-sub {
   margin-left: 26px;

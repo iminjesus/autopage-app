@@ -80,13 +80,24 @@ const moved = await ink();
 check(moved !== printed && moved < printed * 1.3,
   `the page is redrawn with the new chords and no rectangles: ${printed} -> ${moved}`);
 
-// --- The warning, which is the point ---------------------------------------
-check((await band()).startsWith("Chords in A — staff still in Ab"),
-  `the screen says which half moved: "${await band()}"`);
+// --- It says where the key went, for a moment -------------------------------
+//
+// Not for ever. A warning that stays on screen through a whole service reads
+// as clutter, and a warning nobody wants is one they turn the feature off to
+// be rid of. What is permanent is the control in the panel.
+check((await band()).startsWith("Chords in A"),
+  `the screen says where the key went: "${await band()}"`);
+check((await p.locator("#keyNote").isVisible()) &&
+  (await p.locator("#keyNote").textContent()).includes("staff does not change"),
+  "and the panel says in words that only the chords moved");
+
+await p.waitForFunction(() => document.getElementById("keyBand").hidden, null, { timeout: 12000 })
+  .then(() => check(true, "and gets out of the way on its own"))
+  .catch(() => check(false, "and gets out of the way on its own"));
 
 await p.click("#keyReset");
 await p.waitForTimeout(700);
-check(!(await band()), "and stops saying it when it stops being true");
+check(!(await band()), "going back to the printed key leaves nothing behind");
 check(Math.abs((await ink()) - printed) < printed * 0.02,
   "the original key comes back exactly as printed");
 
@@ -124,7 +135,7 @@ await open(chart);
 await panel();
 check((await p.locator("#keyNow").textContent()).startsWith("A ("),
   `and coming back to the chart comes back to its key: ${await p.locator("#keyNow").textContent()}`);
-check((await band()).includes("staff still in Ab"), "warning and all");
+check((await band()).startsWith("Chords in A"), `and says so again: "${await band()}"`);
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

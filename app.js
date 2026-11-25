@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25d hand-readout";
+const BUILD = "2026-11-25e key-note";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { spelling, keyName } from "./transpose.js";
@@ -77,7 +77,7 @@ for (const id of [
   "installSteps", "installArrow", "panelInstallBtn", "panelInstallHow",
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "driveBtn", "panelDriveBtn", "driveToast",
-  "keyRow", "keyNow", "keyUp", "keyDown", "keyReset", "keyBand",
+  "keyRow", "keyNow", "keyUp", "keyDown", "keyReset", "keyBand", "keyNote",
   "thumbsField", "thumbsOn", "thumbsDownField", "thumbsDownOn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
@@ -341,12 +341,17 @@ function onHandFrame() {
 /**
  * The hand's state, for the end of the diagnostics line.
  *
- * Only when it has been switched on, so the readout a player already reads
- * for the page turn does not grow a line about something they never asked
- * for.
+ * Always, not only once it is switched on. Showing it only while it was on
+ * meant an empty space answered two different questions — "you have not
+ * turned this on" and "you turned it on and it is broken" — and the second
+ * one is the one somebody is looking at the panel to ask. One short line
+ * ends that for good; the rest of this readout is four lines of numbers
+ * already.
  */
 function handLine() {
-  return thumbsOn ? `\nhand  ${handReport}` : "";
+  if (thumbsOn) return `\nhand  ${handReport}`;
+  if (!firstChord) return "\nhand  off — no chord symbols on this score";
+  return '\nhand  off — tick "Thumbs up raises the key" in Setup';
 }
 
 function handSignal(gesture, now) {
@@ -443,13 +448,23 @@ async function setKeyShift(next) {
   await showPage(state.page);
 }
 
+const BAND_FOR_MS = 6000;
+let bandTimer = null;
+
 /**
- * Say what key the chords are in, and that the staff is not in it.
+ * Say what key the chords are in, for a moment after they move.
  *
- * Permanently, not as a notice that goes away. Somebody reading the melody off
- * the staff while the band plays the transposed chords is the one way this
- * feature can do harm, and the only defence is that the screen never stops
- * saying so.
+ * It used to stay there for as long as the chart was transposed, on the
+ * reasoning that somebody reading the melody while the band plays moved
+ * chords is the one way this can do harm. In front of a real score for a
+ * whole service that reads as clutter, which is its own kind of harm: a
+ * warning nobody wants on screen is a warning they will turn the feature off
+ * to be rid of.
+ *
+ * So it appears when the key changes — which is the moment an accidental
+ * change needs taking back, and the moment the tap-to-undo is worth having —
+ * and then goes. What is permanent is the Key control in the panel, which
+ * says the key and says in words that only the chords moved.
  */
 function showKey() {
   if (!el.keyRow) return;
@@ -462,14 +477,17 @@ function showKey() {
       ? `${keyName(firstChord, transposeBy)} (${transposeBy > 0 ? "+" : ""}${transposeBy})`
       : (keyName(firstChord, 0) ?? "—");
   }
+  if (el.keyNote) el.keyNote.hidden = !has;
   if (!el.keyBand) return;
+
+  clearTimeout(bandTimer);
   const on = has && transposeBy !== 0;
   el.keyBand.hidden = !on;
-  if (on) {
-    el.keyBand.textContent =
-      `Chords in ${keyName(firstChord, transposeBy)} — staff still in ${keyName(firstChord, 0)}` +
-      "  ·  tap to undo";
-  }
+  if (!on) return;
+  el.keyBand.textContent = `Chords in ${keyName(firstChord, transposeBy)}  ·  tap to undo`;
+  bandTimer = setTimeout(() => {
+    el.keyBand.hidden = true;
+  }, BAND_FOR_MS);
 }
 
 /**

@@ -72,6 +72,10 @@ await p.evaluate(() => { document.getElementById("thumbsOn").checked = true; });
 // first thing this feature produced was "I ticked the box and nothing
 // happens", which is unanswerable without a readout.
 const report = () => p.evaluate(() => window.__autopage.handReport);
+const diagLine = () => p.evaluate(() => {
+  const t = document.getElementById("gestureAsym").textContent;
+  return t.split("\n").find((l) => l.startsWith("hand")) ?? "";
+});
 await hand(null, 200);
 check((await report()) === "no hand", `it says when there is no hand: "${await report()}"`);
 await hand("Thumb_Up", 160);
@@ -154,6 +158,28 @@ await p.waitForTimeout(900);
 await hand(null, 400);
 check((await hand("Thumb_Up", HOLD + 400)) === 0, "a thumb at a score with no chords changes nothing");
 check((await shift()) === 0, "there being nothing to change");
+
+// --- And the line is there before it is switched on ------------------------
+//
+// An empty space answered two different questions — "you have not turned
+// this on" and "you turned it on and it is broken" — and the second is the
+// one somebody is looking at the panel to ask.
+await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+await p.evaluate(() => localStorage.removeItem("autopage-thumbs"));
+await p.reload({ waitUntil: "networkidle" });
+await p.setInputFiles("#fileInput", chart);
+await p.waitForFunction(() => window.__autopage.state.pageCount > 0, { timeout: 20000 });
+await p.evaluate(() => window.__autopage.startGesture());
+await p.waitForFunction(() => document.getElementById("camPreview").readyState >= 2, null, { timeout: 30000 });
+await p.waitForTimeout(1500);
+check((await diagLine()).includes("tick"),
+  `a chart with chords says how to switch it on: "${await diagLine()}"`);
+
+await p.setInputFiles("#fileInput", `${here}../fixtures/menuet-in-g.pdf`);
+await p.waitForFunction(() => window.__autopage.state.pageCount === 4, { timeout: 20000 });
+await p.waitForTimeout(1500);
+check((await diagLine()).includes("no chord symbols"),
+  `and a score without them says why there is nothing to switch on: "${await diagLine()}"`);
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

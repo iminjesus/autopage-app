@@ -993,3 +993,25 @@ over: a feature whose failure is invisible has no bug reports, only
 complaints. The readout is not a debugging aid to be added when something goes
 wrong — it is the thing that makes going wrong reportable, and it belongs in
 the first version.
+
+## A warning nobody wants on screen is a warning they turn the feature off for
+
+The band said *Chords in Bb — staff still in Ab* for as long as the chart was
+transposed, and the reasoning behind that still holds: somebody reading the
+melody while the band plays moved chords is the one way this can do harm.
+
+In front of a real score for a whole service it reads as clutter. That is not
+a cosmetic complaint. A permanent warning competes with the music for the only
+screen the player has, and the way people get rid of it is to stop using the
+thing that put it there — which loses the warning *and* the feature.
+
+So the band appears when the key moves and goes after a few seconds. That is
+the moment it is worth having: an accidental thumb needs taking back right
+then, and the tap-to-undo is on the band. What is permanent instead is in the
+panel, where it costs nothing: the Key control says which key the chords are
+in, and a line under it says the printed staff does not change. The thumbs
+setting says it too, because that is the control somebody switches on without
+reading anything else.
+
+The safety did not get deleted; it moved to where it is read rather than
+endured.

@@ -155,13 +155,16 @@
           <button type="button" id="keyUp" aria-label="Up a semitone">+</button>
           <button type="button" id="keyReset" class="plain">original</button>
         </div>
+        <p class="key-note" id="keyNote" hidden>
+          Chord symbols only — the printed staff does not change.
+        </p>
 
         <!-- A set goes up a tone for the last chorus, and that happens with
              both hands busy. A thumb to the camera is the one signal a player
              can give mid-song. -->
         <label class="field field-check" id="thumbsField" hidden>
           <input type="checkbox" id="thumbsOn" />
-          <span>Thumbs up raises the key <em>— a tone, the usual one</em></span>
+          <span>Thumbs up raises the key <em>— a tone, chord symbols only</em></span>
         </label>
         <label class="field field-check field-sub" id="thumbsDownField" hidden>
           <input type="checkbox" id="thumbsDownOn" checked />
@@ -260,9 +263,8 @@
        on top of the lot and survives both. -->
   <div class="drive-toast" id="driveToast" hidden role="status"></div>
 
-  <!-- Permanent while the chords have been moved, because somebody reading
-       the melody off the staff while the band plays the transposed chords is
-       the one way this can do harm. -->
+  <!-- For a few seconds after the key moves: the moment an accidental change
+       needs taking back. What is permanent is the Key control in the panel. -->
   <div class="key-band" id="keyBand" hidden role="status"></div>
 </body>
 </html>
