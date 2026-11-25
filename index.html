@@ -156,6 +156,18 @@
           <button type="button" id="keyReset" class="plain">original</button>
         </div>
 
+        <!-- A set goes up a tone for the last chorus, and that happens with
+             both hands busy. A thumb to the camera is the one signal a player
+             can give mid-song. -->
+        <label class="field field-check" id="thumbsField" hidden>
+          <input type="checkbox" id="thumbsOn" />
+          <span>Thumbs up changes the key <em>— twice for a tone</em></span>
+        </label>
+        <label class="field field-check field-sub" id="thumbsDownField" hidden>
+          <input type="checkbox" id="thumbsDownOn" checked />
+          <span>and thumbs down lowers it</span>
+        </label>
+
         <button id="calibrateBtn" class="btn btn-secondary btn-block">Calibrate</button>
 
         <label class="field" id="holdField" hidden>

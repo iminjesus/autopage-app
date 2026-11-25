@@ -49,6 +49,18 @@ that is 95% transposed is worse than one nobody touched.
 The key belongs to the score, so the next song in the set starts where it was
 printed. Scores with no chord symbols never see the control.
 
+**Thumbs up changes the key**, for the last chorus a tone up with both hands
+busy. One thumb is a semitone, so two is a tone — hold it for about a second,
+and put your hand down before the next one. Thumbs down lowers it, and can be
+switched off. The band across the screen says where the key went and puts it
+back if you tap it.
+
+It is off until you turn it on, and only offered on a chart that has chords.
+Turning it on fetches an 8MB hand model once, which then belongs to the
+device like the face one. It reads the camera six times a second against the
+face model's thirty: measured at 22fps for the face with it running, against
+29fps without, which is well inside what the page turn needs.
+
 If the camera is paused or taken by something else, the app notices within a
 couple of seconds and starts it again — and says so if it cannot.
 

@@ -983,5 +983,13 @@ a.btn-block {
   font-size: 13px;
   line-height: 1.4;
   text-align: center;
-  pointer-events: none;
+  /* Tappable, because it is also the undo: a key changed by a hand that was
+     not asking is the one bad outcome here, and this is already the thing on
+     screen saying it happened. */
+  cursor: pointer;
+}
+
+/* A setting that only means anything while the one above it is on. */
+.field-sub {
+  margin-left: 26px;
 }

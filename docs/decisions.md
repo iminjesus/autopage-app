@@ -918,3 +918,44 @@ The overlay runs inside the page cache, before a page is stored. The app
 already draws the pages either side of the one showing, so a turn is a blit;
 doing the work on the way to the screen instead would have spent the thing the
 app is for. Measured at 25ms against 41ms for the printed key.
+
+## A thumb costs more to get wrong than a tilt
+
+The last chorus goes up a tone, and it happens with both hands busy and the
+Setup panel three taps away. A thumb held up to the camera is the one signal a
+player can give mid-song, and the vendored MediaPipe bundle already has the
+recogniser in it — only the 8MB model had to be added, and only for people who
+ask for it.
+
+It is held to a stricter standard than a page turn, because the two failures
+are not comparable. A page turned by mistake is turned back. A key changed by
+mistake rewrites every chord on the stand, mid-chorus, in front of the
+congregation. So: held for six hundred milliseconds, ignored below a
+confidence of 0.7, and **latched** — the hand has to go away before another
+counts, or a thumb held up while somebody thinks walks the key up a tone at a
+time. Two deliberate thumbs is the tone that was asked for.
+
+And the band that says what happened is also the undo. It was already on
+screen saying which half moved; making it tappable costs nothing and turns the
+one bad outcome into one tap.
+
+**The cost to the page turn is the thing that had to be measured.** The face
+model is already reading the camera thirty times a second and that is the work
+this app exists to do; a second vision model could quietly halve it, and the
+symptom would be the gesture going vague — the complaint this app has already
+answered three times. So the hand is read six times a second rather than
+thirty, and not at all on a score with no chord symbols to move. Measured:
+29.3fps for the face alone, 22.3fps with the hand running. The test fails if
+it drops below 20 or loses more than a third.
+
+That 22 is survivable only because of the earlier work: every gate is in
+milliseconds now, so 22fps and 30fps are the same gesture. Had this been built
+before that, a hand on the camera would have made the page turner worse in
+exactly the way that was hardest to diagnose.
+
+One real bug fell out of it. `startGesture` awaited `camPreview.play()`, and a
+play() superseded by a newer load rejects with AbortError — which abandoned
+the rest of the function and left the camera half started, with no timer
+watching it and nothing on screen to say so. A superseded play is not a
+failure. The watchdog also now keeps out of startup rather than racing it for
+the same video element.
