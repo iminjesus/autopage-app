@@ -882,3 +882,39 @@ attached to the answer rather than being rounded off to the louder side.
 
 What remains true from all of it: do not upload a logo. That is brand
 verification, a separate review measured in weeks, and nothing here needs it.
+
+## The chords move and the staff does not, and the screen says which
+
+Chord symbols are text in the PDF: a string and a position, which can be read,
+covered and rewritten. Notation is not. What is there is "draw this shape
+here", with no pitch attached — recovering one means reconstructing the staff
+origin, the line spacing, the clef, the key signature and every accidental
+still in force, which is optical music recognition. Putting it back means
+re-stemming, re-beaming, moving accidentals, respacing the bar around them,
+redrawing ties and slurs, adding and removing ledger lines. That is a
+typesetter, not a feature.
+
+And it would not be worth having even if it worked most of the time. A staff
+that is 95% transposed is worse than one nobody touched, because somebody
+sings it. The better route exists anyway: SongSelect gives you the chart in
+whatever key you ask for at download time, which is the right place to solve
+it.
+
+So the chords move, and the warning is part of the feature rather than an
+apology for it. A band across the foot of the score reads *Chords in Bb —
+staff still in Ab* for exactly as long as that is true. Somebody reading the
+melody while the band plays the transposed chords is the one way this can do
+harm, and a screen that never stops saying so is the only defence.
+
+It was built outside the app first. A standalone page read a real chart, drew
+boxes where it thought the chords were, and showed them transposed — so the
+question "is this possible on their actual files" was answered against their
+actual files before a line of the app changed, at a time when the app was in
+use on a Sunday. Two things came back from that which no amount of reasoning
+would have: that it works, and that a patch taking its colour from one pixel
+paints itself black on a tightly set hymn sheet.
+
+The overlay runs inside the page cache, before a page is stored. The app
+already draws the pages either side of the one showing, so a turn is a blit;
+doing the work on the way to the screen instead would have spent the thing the
+app is for. Measured at 25ms against 41ms for the printed key.
