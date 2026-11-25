@@ -78,6 +78,7 @@ for (const id of [
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "driveBtn", "panelDriveBtn", "driveToast",
   "keyRow", "keyNow", "keyUp", "keyDown", "keyReset", "keyBand",
+  "thumbsField", "thumbsOn", "thumbsDownField", "thumbsDownOn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -219,6 +220,141 @@ async function showPage(n) {
   if (n - 1 >= 1) rasterizeCached(n - 1).catch(() => {});
 }
 
+// ============================================================
+// Changing key by hand
+//
+// A worship set goes up a tone for the last chorus, and that happens while
+// both hands are busy and the Setup panel is three taps away. A thumb held up
+// to the camera is the one signal a player can give mid-song without stopping.
+//
+// It is held to a stricter standard than a page turn, because it costs more
+// to get wrong: a page turned by mistake is turned back, while a key changed
+// by mistake rewrites every chord on the stand mid-chorus. So it has to be
+// held, it has to be let go of before it counts again, and the band across
+// the screen says what happened and undoes it on a tap.
+// ============================================================
+
+const THUMBS_KEY = "autopage-thumbs";
+const THUMBS_DOWN_KEY = "autopage-thumbs-down";
+
+// A fifth of the face's rate. A thumb is held for the best part of a second,
+// so looking six times in that second is plenty — and the face model is
+// already using the camera thirty times a second, which is the work that
+// must not be disturbed.
+const HAND_FPS = 6;
+const THUMB_HOLD_MS = 600;
+const THUMB_CONFIDENCE = 0.7;
+
+let thumbsOn = false;
+let thumbsDownOn = true;
+let recognizer = null;
+let handTimer = null;
+let thumbWhich = 0;
+let thumbSince = 0;
+let thumbLatched = false;
+
+/**
+ * The model is 8MB and most people will never ask for this.
+ *
+ * Fetched when the setting is switched on and not before, the same bargain
+ * the face model gets. The service worker keeps it in the cache that is never
+ * swept, so it is downloaded once and then belongs to the device.
+ */
+async function startHands() {
+  if (recognizer || !landmarker) return;
+  const { GestureRecognizer, FilesetResolver } =
+    await import("./vendor/mediapipe/vision_bundle.js");
+  const fileset = await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
+  recognizer = await GestureRecognizer.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: "./vendor/mediapipe/gesture_recognizer.task" },
+    runningMode: "VIDEO",
+    numHands: 1,
+  });
+  clearInterval(handTimer);
+  handTimer = setInterval(onHandFrame, Math.round(1000 / HAND_FPS));
+}
+
+function stopHands() {
+  clearInterval(handTimer);
+  handTimer = null;
+  recognizer?.close();
+  recognizer = null;
+  thumbWhich = 0;
+  thumbLatched = false;
+}
+
+function onHandFrame() {
+  if (!recognizer || el.camPreview.readyState < 2) return;
+  // Nothing to move on a score with no chord symbols, so do not pay to look.
+  // This is most of the cost on most scores.
+  if (!firstChord) return;
+  try {
+    const result = recognizer.recognizeForVideo(el.camPreview, performance.now());
+    handSignal(result?.gestures?.[0]?.[0], performance.now());
+  } catch (err) {
+    // Same reasoning as the face loop: this runs on a timer and would
+    // otherwise fail silently several times a second.
+    console.warn("hand frame failed:", err.message);
+  }
+}
+
+/**
+ * Decide on one reading of the hand.
+ *
+ * Split out so a test can hand it gestures directly. A thumb in front of a
+ * headless camera is not a thing that can be arranged, and the part worth
+ * testing is the holding and the latching rather than whether Google's model
+ * knows a thumb when it sees one.
+ */
+function handSignal(gesture, now) {
+  const name = gesture && gesture.score >= THUMB_CONFIDENCE ? gesture.categoryName : null;
+  const want =
+    name === "Thumb_Up" ? 1 : name === "Thumb_Down" && thumbsDownOn ? -1 : 0;
+
+  if (!want) {
+    // The hand has to go away before another one counts. Without this a thumb
+    // held up while somebody thinks about it walks the key up a tone at a
+    // time, and two deliberate thumbs is the normal way to ask for a tone.
+    thumbWhich = 0;
+    thumbLatched = false;
+    return 0;
+  }
+  if (want !== thumbWhich) {
+    thumbWhich = want;
+    thumbSince = now;
+    return 0;
+  }
+  if (thumbLatched || now - thumbSince < THUMB_HOLD_MS) return 0;
+
+  thumbLatched = true;
+  if (!firstChord) {
+    setProgress("No chord symbols on this score to move.", "problem");
+    return 0;
+  }
+  setKeyShift(transposeBy + want);
+  return want;
+}
+
+/** Turn it on or off, and remember which. */
+async function setThumbs(on) {
+  thumbsOn = on;
+  remember(THUMBS_KEY, on ? "1" : null);
+  if (el.thumbsDownField) el.thumbsDownField.hidden = !on;
+  if (!on) {
+    stopHands();
+    return;
+  }
+  try {
+    setProgress("Getting the hand model…");
+    await startHands();
+    setProgress("");
+  } catch (err) {
+    setProgress(`Could not start hand detection — ${err.message}`, "problem");
+    thumbsOn = false;
+    if (el.thumbsOn) el.thumbsOn.checked = false;
+  }
+}
+
 /**
  * Look for chord symbols, once, in the background.
  *
@@ -264,6 +400,8 @@ function showKey() {
   if (!el.keyRow) return;
   const has = Boolean(firstChord);
   el.keyRow.hidden = !has;
+  if (el.thumbsField) el.thumbsField.hidden = !has;
+  if (el.thumbsDownField) el.thumbsDownField.hidden = !has || !thumbsOn;
   if (has) {
     el.keyNow.textContent = transposeBy
       ? `${keyName(firstChord, transposeBy)} (${transposeBy > 0 ? "+" : ""}${transposeBy})`
@@ -274,7 +412,8 @@ function showKey() {
   el.keyBand.hidden = !on;
   if (on) {
     el.keyBand.textContent =
-      `Chords in ${keyName(firstChord, transposeBy)} — staff still in ${keyName(firstChord, 0)}`;
+      `Chords in ${keyName(firstChord, transposeBy)} — staff still in ${keyName(firstChord, 0)}` +
+      "  ·  tap to undo";
   }
 }
 
@@ -744,6 +883,20 @@ function showCalibrationState() {
     : "Not calibrated yet — optional";
 }
 
+/**
+ * Bring back the hand setting, without bringing back the model.
+ *
+ * The box is ticked and the model is fetched when the camera is next running
+ * — there is nothing for a hand recogniser to watch before then, and 8MB is
+ * not something to spend on a page that may only be opening a PDF.
+ */
+function loadThumbs() {
+  thumbsOn = remembered(THUMBS_KEY) === "1";
+  thumbsDownOn = remembered(THUMBS_DOWN_KEY) !== "0";
+  if (el.thumbsOn) el.thumbsOn.checked = thumbsOn;
+  if (el.thumbsDownOn) el.thumbsDownOn.checked = thumbsDownOn;
+}
+
 function loadHold() {
   const stored = Number(localStorage.getItem(HOLD_KEY));
   if (stored >= 100 && stored <= 1500) gestureHoldMs = stored;
@@ -828,10 +981,15 @@ async function startGesture() {
     video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
   });
   el.camPreview.srcObject = camStream;
-  await el.camPreview.play();
+  // A play() that a newer load supersedes rejects with AbortError, and that
+  // is not a failure — the newer load is the one that matters. Letting it
+  // throw here abandoned the rest of this function and left the camera half
+  // started, with no timer watching it and nothing on screen to say so.
+  await el.camPreview.play().catch(() => {});
 
   lastSeenTime = -1;
   lastAdvanceAt = performance.now();
+  if (thumbsOn) startHands().catch((err) => console.warn("hands:", err.message));
   gestureTimer = setInterval(onGestureFrame, Math.round(1000 / GESTURE_FPS));
   el.holdField.hidden = false;
   el.swapField.hidden = false;
@@ -840,6 +998,7 @@ async function startGesture() {
 }
 
 function stopGesture() {
+  stopHands();
   clearInterval(gestureTimer);
   gestureTimer = null;
   lastSeenTime = -1;
@@ -1150,12 +1309,15 @@ function updateHeadPose(landmarks) {
  * broken.
  */
 const CAMERA_STALL_MS = 2500;
+let faceFrames = 0; // only so the cost of anything else can be measured
 let lastSeenTime = -1; // the video's own clock, which stops when it does
 let lastAdvanceAt = 0;
 let reviving = false;
 
 async function reviveCamera() {
-  if (reviving) return;
+  // Not while the camera is still being started: the two would be setting
+  // srcObject and calling play() over each other.
+  if (reviving || !gestureTimer) return;
   reviving = true;
   setProgress("Restarting the camera…");
   try {
@@ -1210,6 +1372,7 @@ function onGestureFrame() {
   }
   if (video.readyState < 2) return;
 
+  faceFrames++;
   try {
     gestureFrame();
   } catch (err) {
@@ -3191,6 +3354,14 @@ on("driveToast", "click", () => setProgress("")); // read it, dismiss it
 on("keyUp", "click", () => setKeyShift(transposeBy + 1));
 on("keyDown", "click", () => setKeyShift(transposeBy - 1));
 on("keyReset", "click", () => setKeyShift(0));
+// A key changed by a hand that was not asking is the one bad outcome here,
+// and the band is already the thing on screen saying it happened.
+on("keyBand", "click", () => setKeyShift(0));
+on("thumbsOn", "change", () => setThumbs(el.thumbsOn.checked));
+on("thumbsDownOn", "change", () => {
+  thumbsDownOn = el.thumbsDownOn.checked;
+  remember(THUMBS_DOWN_KEY, thumbsDownOn ? null : "0"); // on unless turned off
+});
 on("driveBtn", "pointerdown", warmGoogle);
 on("panelDriveBtn", "pointerdown", warmGoogle);
 
@@ -3600,6 +3771,8 @@ if (missingEls.length) {
   showError("This page is out of date — reload to finish updating.");
 }
 
+loadThumbs();
+
 window.__autopageReady = true;
 
 // Exposed for the headless test harness in tools/.
@@ -3616,6 +3789,14 @@ window.__autopage = {
     describeGesture();
   },
   get missingEls() { return missingEls; },
+  // A thumb in front of a headless camera is not a thing that can be
+  // arranged, and what is worth testing is the holding and the latching
+  // rather than whether Google's model knows a thumb when it sees one.
+  handSignal,
+  setThumbs,
+  get thumbsOn() { return thumbsOn; },
+  get keyShift() { return transposeBy; },
+  get faceFrames() { return faceFrames; },
   get mode() { return gestureMode; },
   get peakHeld() { return peakHeld; },
   clearPeak() { peakHeld = 0; },

@@ -81,7 +81,7 @@ check(moved !== printed && moved < printed * 1.3,
   `the page is redrawn with the new chords and no rectangles: ${printed} -> ${moved}`);
 
 // --- The warning, which is the point ---------------------------------------
-check((await band()) === "Chords in A — staff still in Ab",
+check((await band()).startsWith("Chords in A — staff still in Ab"),
   `the screen says which half moved: "${await band()}"`);
 
 await p.click("#keyReset");
