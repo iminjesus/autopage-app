@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25c thumbs-tone";
+const BUILD = "2026-11-25d hand-readout";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { spelling, keyName } from "./transpose.js";
@@ -261,6 +261,16 @@ let thumbSince = 0;
 let thumbLatched = false;
 
 /**
+ * What the hand is doing, in words, for the diagnostics line.
+ *
+ * A gesture nobody can watch failing is a gesture nobody can report. The face
+ * side has said its numbers out loud from the beginning, and that is how
+ * every problem with it was found; this had nothing, and the first thing it
+ * produced was "I ticked the box and nothing happens", which is unanswerable.
+ */
+let handReport = "off";
+
+/**
  * The model is 8MB and most people will never ask for this.
  *
  * Fetched when the setting is switched on and not before, the same bargain
@@ -268,7 +278,16 @@ let thumbLatched = false;
  * swept, so it is downloaded once and then belongs to the device.
  */
 async function startHands() {
-  if (recognizer || !landmarker) return;
+  if (recognizer) return;
+  // The camera has to be running before there is anything to watch. Returning
+  // quietly here is what made "I ticked the box and nothing happens" into a
+  // thing with no explanation anywhere. It says so now, and the camera
+  // starting later turns it on, because startGesture asks again.
+  if (!landmarker) {
+    handReport = "waiting for the camera";
+    return;
+  }
+  handReport = "loading the hand model…";
   const { GestureRecognizer, FilesetResolver } =
     await import("./vendor/mediapipe/vision_bundle.js");
   const fileset = await FilesetResolver.forVisionTasks("./vendor/mediapipe/wasm");
@@ -278,10 +297,12 @@ async function startHands() {
     numHands: 1,
   });
   clearInterval(handTimer);
+  handReport = "watching";
   handTimer = setInterval(onHandFrame, Math.round(1000 / HAND_FPS));
 }
 
 function stopHands() {
+  handReport = "off";
   clearInterval(handTimer);
   handTimer = null;
   recognizer?.close();
@@ -294,13 +315,17 @@ function onHandFrame() {
   if (!recognizer || el.camPreview.readyState < 2) return;
   // Nothing to move on a score with no chord symbols, so do not pay to look.
   // This is most of the cost on most scores.
-  if (!firstChord) return;
+  if (!firstChord) {
+    handReport = "no chords on this score to move";
+    return;
+  }
   try {
     const result = recognizer.recognizeForVideo(el.camPreview, performance.now());
     handSignal(result?.gestures?.[0]?.[0], performance.now());
   } catch (err) {
     // Same reasoning as the face loop: this runs on a timer and would
     // otherwise fail silently several times a second.
+    handReport = `hand error: ${err.message}`;
     console.warn("hand frame failed:", err.message);
   }
 }
@@ -313,7 +338,19 @@ function onHandFrame() {
  * testing is the holding and the latching rather than whether Google's model
  * knows a thumb when it sees one.
  */
+/**
+ * The hand's state, for the end of the diagnostics line.
+ *
+ * Only when it has been switched on, so the readout a player already reads
+ * for the page turn does not grow a line about something they never asked
+ * for.
+ */
+function handLine() {
+  return thumbsOn ? `\nhand  ${handReport}` : "";
+}
+
 function handSignal(gesture, now) {
+  const seen = gesture ? `${gesture.categoryName} ${gesture.score.toFixed(2)}` : "no hand";
   const name = gesture && gesture.score >= THUMB_CONFIDENCE ? gesture.categoryName : null;
   const want =
     name === "Thumb_Up" ? THUMB_UP : name === "Thumb_Down" && thumbsDownOn ? THUMB_DOWN : 0;
@@ -322,6 +359,8 @@ function handSignal(gesture, now) {
     // The hand has to go away before another one counts. Without this a thumb
     // held up while somebody thinks about it walks the key up a tone every
     // second or so.
+    const short = gesture && gesture.score < THUMB_CONFIDENCE;
+    handReport = short ? `${seen} — needs ${THUMB_CONFIDENCE}` : seen;
     thumbWhich = 0;
     thumbLatched = false;
     return 0;
@@ -329,11 +368,20 @@ function handSignal(gesture, now) {
   if (want !== thumbWhich) {
     thumbWhich = want;
     thumbSince = now;
+    handReport = `${seen} — holding`;
     return 0;
   }
-  if (thumbLatched || now - thumbSince < THUMB_HOLD_MS) return 0;
+  if (thumbLatched) {
+    handReport = `${seen} — counted, put your hand down`;
+    return 0;
+  }
+  if (now - thumbSince < THUMB_HOLD_MS) {
+    handReport = `${seen} — held ${Math.round(now - thumbSince)}/${THUMB_HOLD_MS}ms`;
+    return 0;
+  }
 
   thumbLatched = true;
+  handReport = `${seen} — ${want > 0 ? "+" : ""}${want}`;
   if (!firstChord) {
     setProgress("No chord symbols on this score to move.", "problem");
     return 0;
@@ -1429,7 +1477,7 @@ function processFrame(landmarks, shapes, now = performance.now()) {
       calibrating.until += 1 / GESTURE_FPS;
       el.gestureAsym.textContent = "Waiting — no face in frame. Move into view.";
     } else {
-      el.gestureAsym.textContent = "no face in frame";
+      el.gestureAsym.textContent = `no face in frame${handLine()}`;
     }
     return;
   }
@@ -1501,7 +1549,8 @@ function processFrame(landmarks, shapes, now = performance.now()) {
       `  held ${Math.round(peakHeld)}/${gestureMode === "tilt" ? TILT_HOLD_MS : gestureHoldMs}ms${unstable ? "  TURNED AWAY" : ""}\n` +
       `needs  past ${((tiltLimit() * 180) / Math.PI).toFixed(0)}°, flicked there faster than ` +
       `${((tiltRate() * 180) / Math.PI).toFixed(0)}°/0.3s  —  ` +
-      `${onsetAge > ONSET_FRAMES ? "no flick yet" : `flicked ${onsetAge}f ago`}`;
+      `${onsetAge > ONSET_FRAMES ? "no flick yet" : `flicked ${onsetAge}f ago`}` +
+      handLine();
     return decide(unstable ? 0 : tiltDirection(roll), unstable);
   }
 
@@ -1512,7 +1561,8 @@ function processFrame(landmarks, shapes, now = performance.now()) {
     `peak openL ${peaks.l.toFixed(3)}  openR ${peaks.r.toFixed(3)}  diff ${peaks.net.toFixed(2)} ` +
     `/ ${limitsFor(signed > 0 ? 1 : -1).threshold.toFixed(2)}   yaw ${headYaw.toFixed(2)}/${MAX_YAW}` +
     ` swing ${yawSwing.toFixed(2)}/${MAX_YAW_SWING}` +
-    `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}`;
+    `   blendshape diff ${bsDiff >= 0 ? "+" : ""}${bsDiff.toFixed(2)}` +
+    handLine();
 
   decide(shaking ? 0 : winkDirection(signed, absDiff), shaking);
 }
@@ -3804,6 +3854,7 @@ window.__autopage = {
   get thumbsOn() { return thumbsOn; },
   get keyShift() { return transposeBy; },
   get faceFrames() { return faceFrames; },
+  get handReport() { return handReport; },
   get mode() { return gestureMode; },
   get peakHeld() { return peakHeld; },
   clearPeak() { peakHeld = 0; },

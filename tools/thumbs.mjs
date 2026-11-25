@@ -66,6 +66,28 @@ check(asked.length === 0, "and the 8MB model is not fetched by a page that only 
 await p.evaluate(() => { window.__autopage.thumbsTestOnly = true; });
 await p.evaluate(() => { document.getElementById("thumbsOn").checked = true; });
 
+// --- It says what it is seeing ---------------------------------------------
+//
+// A gesture nobody can watch failing is a gesture nobody can report. The
+// first thing this feature produced was "I ticked the box and nothing
+// happens", which is unanswerable without a readout.
+const report = () => p.evaluate(() => window.__autopage.handReport);
+await hand(null, 200);
+check((await report()) === "no hand", `it says when there is no hand: "${await report()}"`);
+await hand("Thumb_Up", 160);
+check((await report()).includes("Thumb_Up 0.90"), `and what it saw: "${await report()}"`);
+check((await report()).includes("holding") || (await report()).includes("held"),
+  "and that it is waiting for it to be held");
+await hand(null, 200);
+await hand("Thumb_Up", HOLD - 400);
+check(/held \d+\/600ms/.test(await report()), `with how far through: "${await report()}"`);
+await hand(null, 200);
+await hand("Thumb_Up", 160, 0.4);
+check((await report()).includes("needs 0.7"),
+  `a reading too weak to act on says so rather than nothing: "${await report()}"`);
+await hand(null, 300);
+await p.evaluate(() => { window.__autopage.handSignal(null, 0); });
+
 // --- One thumb, one tone ---------------------------------------------------
 //
 // Lopsided on purpose: up for the last chorus is a tone almost every time, so
@@ -78,6 +100,8 @@ check((await shift()) === 2, `and raises the chords a tone — D to E: ${await s
 // The reason for the latch. A thumb held up while somebody thinks about it
 // would otherwise walk the key up a tone at a time.
 check((await hand("Thumb_Up", 4000)) === 0, "holding it there does not keep going");
+check((await report()).includes("put your hand down"),
+  `and says why nothing more is happening: "${await report()}"`);
 check((await shift()) === 2, `the key stayed where it was put: ${await shift()}`);
 
 // --- Twice is a tone, which is what is actually asked for -------------------

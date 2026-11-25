@@ -964,3 +964,32 @@ the rest of the function and left the camera half started, with no timer
 watching it and nothing on screen to say so. A superseded play is not a
 failure. The watchdog also now keeps out of startup rather than racing it for
 the same video element.
+
+## "I ticked the box and nothing happens"
+
+Which is unanswerable, and was my fault twice over.
+
+The first fault was a guard that gave up quietly. `startHands` began with
+`if (recognizer || !landmarker) return` — so switching the setting on before
+the camera was running did nothing at all, reported success, and left a ticked
+box watching nothing. It recovers when the camera starts, because startGesture
+asks again, but nothing anywhere said which state it was in.
+
+The second was the real one: **no readout**. The face side has printed its
+numbers into the panel from the beginning — the angle, the rate, how far
+through the hold it is — and every problem the gesture ever had was found by
+reading that line. The hand had nothing, so the only report available was that
+it did not work, which could mean the model never loaded, the hand is out of
+frame, the thumb is read at 0.6 when 0.7 is wanted, or the score has no chords
+to move. Four different problems wearing the same face.
+
+It says so now, on the same line: `hand  Thumb_Up 0.62 — needs 0.7`, or
+`held 320/600ms`, or `counted, put your hand down`, or `no chords on this
+score to move`, or `waiting for the camera`. Only when the setting is on, so
+nobody reads a line about something they never asked for.
+
+The lesson is the one the Drive messages already taught and I did not carry
+over: a feature whose failure is invisible has no bug reports, only
+complaints. The readout is not a debugging aid to be added when something goes
+wrong — it is the thing that makes going wrong reportable, and it belongs in
+the first version.
