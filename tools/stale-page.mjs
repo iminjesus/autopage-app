@@ -36,7 +36,7 @@ cpSync(app, dir, {
 
 // Whatever the newest additions to the page are. Deleting the most recently
 // added ones is what an old page actually looks like.
-const CUT = ["driveBtn", "panelDriveBtn", "driveToast"];
+const CUT = ["keyRow", "keyBand", "driveToast"];
 let html = readFileSync(join(dir, "index.html"), "utf8");
 for (const id of CUT) {
   const before = html;
@@ -94,9 +94,12 @@ await p.keyboard.press("ArrowRight");
 await p.waitForTimeout(400);
 check((await p.evaluate(() => window.__autopage.state.page)) === 2, "and the pages still turn");
 
-// The missing button is the only thing that is missing.
-check(await p.locator("#fileInput").count() === 1 && (await p.locator("#driveBtn").count()) === 0,
-  "a button the page does not have costs you that button, and nothing else");
+// What was cut is missing, and nothing else is. Read off CUT rather than
+// named here, so that changing what gets cut cannot leave this checking for
+// an element the fixture still has.
+const gone = await p.evaluate((ids) => ids.filter((id) => !document.getElementById(id)), CUT);
+check(gone.length === CUT.length && (await p.locator("#fileInput").count()) === 1,
+  `what the page does not have costs you that and nothing else: ${gone.join(", ")}`);
 
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();

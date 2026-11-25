@@ -37,6 +37,18 @@ page".
   page-turner pedal sends, so those work with no setup.
 - **Tapping** the outer sixth of either side of the score.
 
+### Changing the key
+
+A chart with chord symbols in it gets a **Key** control in the Setup panel.
+The chord symbols move; the notes on the staff do not, and a band across the
+foot of the score says so — *Chords in Bb — staff still in Ab* — for as long
+as it is true. The band reads the chords, so the chords are what moves; the
+notation in the PDF is shapes at positions rather than pitches, and a staff
+that is 95% transposed is worse than one nobody touched.
+
+The key belongs to the score, so the next song in the set starts where it was
+printed. Scores with no chord symbols never see the control.
+
 If the camera is paused or taken by something else, the app notices within a
 couple of seconds and starts it again — and says so if it cannot.
 

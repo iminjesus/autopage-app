@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>AutoPage — transpose preview</title>
+  <link rel="icon" href="icon.svg" />
+  <style>
+    /* A diagnostic, not a feature. Nothing here is linked from the app and
+       nothing in the app imports it: the question is whether a real chord
+       chart carries its chords as text, and that has to be answered against
+       real charts before anything is built on the answer. */
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto; max-width: 46rem; padding: 28px 18px 80px;
+      background: #0f1115; color: #e8eaed;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    }
+    h1 { font-size: 23px; margin: 0 0 6px; letter-spacing: -0.01em; }
+    p.lede { color: #9aa0ac; margin: 0 0 20px; font-size: 15px; line-height: 1.5; }
+    .pick {
+      display: inline-block; background: #4f7cff; color: #fff; font-weight: 600;
+      padding: 13px 22px; border-radius: 12px; cursor: pointer; font-size: 16px;
+    }
+    .verdict {
+      margin: 22px 0 0; padding: 16px 18px; border-radius: 13px;
+      background: #171a21; border: 1px solid rgba(255,255,255,0.09);
+      font-size: 15px; line-height: 1.6;
+    }
+    .verdict.good { border-color: rgba(110,231,160,0.4); }
+    .verdict.bad { border-color: rgba(255,154,138,0.4); }
+    .big { font-size: 19px; font-weight: 600; display: block; margin-bottom: 6px; }
+    .good .big { color: #6ee7a0; }
+    .bad .big { color: #ff9a8a; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+    .found { margin-top: 10px; color: #9aa0ac; word-break: break-word; }
+    canvas { max-width: 100%; height: auto; margin-top: 18px; border-radius: 10px; background: #fff; }
+    .hint { color: #9aa0ac; font-size: 13.5px; margin-top: 16px; line-height: 1.5; }
+    .keys {
+      display: flex; align-items: center; gap: 12px; margin-top: 20px;
+    }
+    .keys button {
+      width: 52px; height: 48px; border-radius: 12px; font-size: 22px;
+      background: #171a21; color: #e8eaed; border: 1px solid rgba(255,255,255,0.16);
+      cursor: pointer;
+    }
+    .keys button.plain { width: auto; padding: 0 14px; font-size: 14px; }
+    #keyNow {
+      min-width: 92px; text-align: center; font-size: 20px; font-weight: 600;
+      color: #6b93ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>Transpose preview</h1>
+  <p class="lede">
+    Open one of the real chord charts and move it to another key. Only the
+    chord symbols move — the notes on the staff stay where they are, which on
+    a lead sheet is what the band is reading anyway. Nothing is uploaded; it
+    all happens here.
+  </p>
+
+  <label class="pick">
+    Open a chord chart
+    <input type="file" id="file" accept="application/pdf,.pdf" hidden />
+  </label>
+
+  <div class="keys" id="keys" hidden>
+    <button type="button" id="down">−</button>
+    <span id="keyNow">—</span>
+    <button type="button" id="up">+</button>
+    <button type="button" id="reset" class="plain">original</button>
+  </div>
+
+  <div id="out"></div>
+
+  <script type="module">
+    import * as pdfjsLib from "./vendor/pdf.js";
+    import { parseChord, spelling, keyName } from "./transpose.js";
+    import { findChords, placeChords } from "./chord-paint.js";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
+
+    const out = document.getElementById("out");
+    const keys = document.getElementById("keys");
+    const keyNow = document.getElementById("keyNow");
+
+    let doc = null;
+    let chords = [];   // {page, text, x, y, w, h, size}
+    let firstChord = null;
+    let shift = 0;
+
+    document.getElementById("file").addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) load(file);
+    });
+    document.getElementById("up").addEventListener("click", () => move(+1));
+    document.getElementById("down").addEventListener("click", () => move(-1));
+    document.getElementById("reset").addEventListener("click", () => move(-shift));
+
+    function move(by) {
+      shift = Math.max(-11, Math.min(11, shift + by));
+      draw();
+    }
+
+    async function load(file) {
+      out.innerHTML = '<div class="verdict">Reading…</div>';
+      keys.hidden = true;
+      shift = 0;
+      try {
+        doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        chords = [];
+        firstChord = null;
+        let items = 0;
+
+        for (let n = 1; n <= doc.numPages; n++) {
+          const page = await doc.getPage(n);
+          for (const item of (await page.getTextContent()).items) {
+            const text = (item.str ?? "").trim();
+            if (!text) continue;
+            items++;
+            if (!parseChord(text)) continue;
+            if (!firstChord) firstChord = text;
+            chords.push({
+              page: n, text,
+              x: item.transform[4], y: item.transform[5],
+              w: item.width, h: item.height || 10,
+              size: Math.abs(item.transform[3]) || 10,
+            });
+          }
+        }
+
+        const ok = chords.length >= 6;
+        const sample = chords.slice(0, 24).map((c) => c.text).join("  ");
+        out.innerHTML =
+          `<div class="verdict ${ok ? "good" : "bad"}">` +
+          `<span class="big">${chords.length} chord symbols found</span>` +
+          `${doc.numPages} page${doc.numPages === 1 ? "" : "s"}, ${items} pieces of text in all.` +
+          (sample ? `<div class="found mono">${sample}</div>` : "") +
+          (items === 0
+            ? "<div class='found'>No text at all — this is a scan, and nothing can be read out of it.</div>"
+            : ok ? "" : "<div class='found'>Text is there but the chords are not coming out as their own pieces.</div>") +
+          "</div>";
+
+        keys.hidden = !ok;
+        if (ok) await draw();
+      } catch (err) {
+        out.innerHTML = `<div class="verdict bad"><span class="big">Could not read it</span>${err.message}</div>`;
+      }
+    }
+
+    async function draw() {
+      keyNow.textContent = shift === 0
+        ? (keyName(firstChord, 0) ?? "original")
+        : `${keyName(firstChord, shift)} (${shift > 0 ? "+" : ""}${shift})`;
+
+      const flats = spelling(firstChord, shift);
+      for (const old of out.querySelectorAll("canvas, .hint")) old.remove();
+
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, 900 / base.width);
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext("2d", { alpha: false });
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        placeChords(ctx, chords.filter((c) => c.page === n), shift, flats, scale);
+        out.append(canvas);
+      }
+
+      const hint = document.createElement("p");
+      hint.className = "hint";
+      hint.textContent =
+        "Screenshot a page and send it. What matters is whether the new chords " +
+        "sit where the old ones did and nothing else got covered up.";
+      out.append(hint);
+    }
+
+  </script>
+</body>
+</html>

@@ -157,6 +157,16 @@
              and the first screen is not seen again. -->
         <div class="recent recent-panel" id="recentPanel" hidden></div>
 
+        <!-- Only for charts that have chord symbols in them. A score with
+             none never shows this. -->
+        <div class="keyrow" id="keyRow" hidden>
+          <span class="keyrow-label">Key</span>
+          <button type="button" id="keyDown" aria-label="Down a semitone">−</button>
+          <span id="keyNow">—</span>
+          <button type="button" id="keyUp" aria-label="Up a semitone">+</button>
+          <button type="button" id="keyReset" class="plain">original</button>
+        </div>
+
         <button id="calibrateBtn" class="btn btn-secondary btn-block">Calibrate</button>
 
         <label class="field" id="holdField" hidden>
@@ -248,5 +258,10 @@
        how "I pressed Select and nothing happened" happened twice. This one is
        on top of the lot and survives both. -->
   <div class="drive-toast" id="driveToast" hidden role="status"></div>
+
+  <!-- Permanent while the chords have been moved, because somebody reading
+       the melody off the staff while the band plays the transposed chords is
+       the one way this can do harm. -->
+  <div class="key-band" id="keyBand" hidden role="status"></div>
 </body>
 </html>

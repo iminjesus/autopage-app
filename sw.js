@@ -1,5 +1,5 @@
 /* Offline cache for the app shell. Bump CACHE to ship an update. */
-const CACHE = "autopage-v45";
+const CACHE = "autopage-v46";
 
 // The face model lives in its own cache, and that name never changes.
 //
@@ -19,6 +19,8 @@ const ASSETS = [
   "./app.js",
   "./qr.js",
   "./licence.js",
+  "./transpose.js",
+  "./chord-paint.js",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",

@@ -23,10 +23,12 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-23n camera-watchdog";
+const BUILD = "2026-11-25a key-change";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { readLicence, licenceProblem } from "./licence.js";
+import { spelling, keyName } from "./transpose.js";
+import { findChords, placeChords } from "./chord-paint.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
@@ -90,6 +92,7 @@ for (const id of [
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "driveBtn", "panelDriveBtn", "driveToast",
   "licenceRow", "licenceState", "licenceInput", "licenceKey", "licenceSave",
+  "keyRow", "keyNow", "keyUp", "keyDown", "keyReset", "keyBand",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
   "holdField", "holdInput", "holdLabel", "swapField", "swapInput",
@@ -134,7 +137,23 @@ const nowSeconds = () => performance.now() / 1000;
 // turn itself is only a blit.
 // ============================================================
 
-const pageCache = new Map(); // "page@layout" -> {canvas, cssW, cssH}
+const pageCache = new Map(); // "page@layout@key" -> {canvas, cssW, cssH}
+
+// ============================================================
+// Key
+//
+// The chord symbols move; the notes on the staff do not, and cannot — what is
+// in the PDF is "draw this shape here", not "this is a D". Reading that back
+// would be optical music recognition and redrawing it would be a typesetter,
+// and a staff that is 95% right is worse than one nobody touched, because
+// somebody sings it. So the chords move and the screen says so, every moment
+// it is true.
+// ============================================================
+
+const KEY_OF = (id) => `autopage-key:${id}`;
+let transposeBy = 0;
+let chordsByPage = new Map();
+let firstChord = null;
 const pending = new Map();
 let showToken = 0; // guards against a slow render landing after a newer turn
 
@@ -164,13 +183,20 @@ async function rasterize(n) {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: ctx, viewport }).promise;
+
+  // Onto the page that was just drawn, before it is cached — so a turn into a
+  // transposed page is the same blit as any other and costs nothing extra.
+  if (transposeBy) {
+    if (!chordsByPage.has(n)) chordsByPage.set(n, findChords(await page.getTextContent()));
+    placeChords(ctx, chordsByPage.get(n), transposeBy, spelling(firstChord, transposeBy), scale);
+  }
   page.cleanup();
 
   return { canvas, cssW: canvas.width / dpr, cssH: canvas.height / dpr };
 }
 
 function rasterizeCached(n) {
-  const key = `${n}@${layoutKey()}`;
+  const key = `${n}@${layoutKey()}@${transposeBy}`;
   const hit = pageCache.get(key);
   if (hit) return Promise.resolve(hit);
   if (pending.has(key)) return pending.get(key);
@@ -209,6 +235,65 @@ async function showPage(n) {
 }
 
 /**
+ * Look for chord symbols, once, in the background.
+ *
+ * Page one only. It decides whether this score has chords worth offering to
+ * move at all, and names the key they are in; the rest of the pages are read
+ * when they are first drawn in another key, which is work nobody is waiting
+ * on. A score with no chords never pays for any of this.
+ */
+async function scanForChords() {
+  if (!state.doc) return;
+  try {
+    const page = await state.doc.getPage(1);
+    const found = findChords(await page.getTextContent());
+    page.cleanup();
+    chordsByPage.set(1, found);
+    firstChord = found[0]?.text ?? null;
+  } catch (err) {
+    console.warn("no chords read:", err.message);
+    firstChord = null;
+  }
+  showKey();
+}
+
+/** Move the chords, and redraw whatever is on screen. */
+async function setKeyShift(next) {
+  const was = transposeBy;
+  transposeBy = Math.max(-11, Math.min(11, next));
+  if (transposeBy === was) return;
+  if (state.scoreId) remember(KEY_OF(state.scoreId), transposeBy ? String(transposeBy) : null);
+  showKey();
+  await showPage(state.page);
+}
+
+/**
+ * Say what key the chords are in, and that the staff is not in it.
+ *
+ * Permanently, not as a notice that goes away. Somebody reading the melody off
+ * the staff while the band plays the transposed chords is the one way this
+ * feature can do harm, and the only defence is that the screen never stops
+ * saying so.
+ */
+function showKey() {
+  if (!el.keyRow) return;
+  const has = Boolean(firstChord);
+  el.keyRow.hidden = !has;
+  if (has) {
+    el.keyNow.textContent = transposeBy
+      ? `${keyName(firstChord, transposeBy)} (${transposeBy > 0 ? "+" : ""}${transposeBy})`
+      : (keyName(firstChord, 0) ?? "—");
+  }
+  if (!el.keyBand) return;
+  const on = has && transposeBy !== 0;
+  el.keyBand.hidden = !on;
+  if (on) {
+    el.keyBand.textContent =
+      `Chords in ${keyName(firstChord, transposeBy)} — staff still in ${keyName(firstChord, 0)}`;
+  }
+}
+
+/**
  * @param bytes  the PDF itself. Not a File: the same call has to serve a score
  *               being picked and one being restored from storage, and only the
  *               first of those has a File behind it.
@@ -228,6 +313,13 @@ async function openScore(bytes, name, startPage = 1, id = null) {
   state.scoreId = id;
   state.page = Math.min(Math.max(startPage, 1), doc.numPages);
   state.measures.clear();
+
+  // A key belongs to a score, not to the app: the next song in the set is a
+  // different chart and starts where it was printed.
+  chordsByPage = new Map();
+  firstChord = null;
+  transposeBy = Number(remembered(KEY_OF(id))) || 0;
+  showKey();
   pageCache.clear();
   pending.clear();
 
@@ -249,6 +341,7 @@ async function openScore(bytes, name, startPage = 1, id = null) {
   render();
   storeThumb(id, doc); // not awaited: a picture for the chooser, not for now
   renderRecent();
+  scanForChords(); // not awaited either: it only decides what the panel offers
 
   for (let n = 1; n <= doc.numPages; n++) {
     state.measures.set(n, await readPage(doc, n));
@@ -3204,6 +3297,9 @@ on("licenceSave", "click", async () => {
   const read = await enterLicence(el.licenceKey.value);
   if (read.ok) el.licenceKey.value = "";
 });
+on("keyUp", "click", () => setKeyShift(transposeBy + 1));
+on("keyDown", "click", () => setKeyShift(transposeBy - 1));
+on("keyReset", "click", () => setKeyShift(0));
 on("driveBtn", "pointerdown", warmGoogle);
 on("panelDriveBtn", "pointerdown", warmGoogle);
 
