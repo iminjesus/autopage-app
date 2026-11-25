@@ -78,7 +78,8 @@
 
   <script type="module">
     import * as pdfjsLib from "./vendor/pdf.js";
-    import { parseChord, transposeChord, spelling, keyName } from "./transpose.js";
+    import { parseChord, spelling, keyName } from "./transpose.js";
+    import { findChords, placeChords } from "./chord-paint.js";
     pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
     const out = document.getElementById("out");
@@ -169,7 +170,7 @@
         ctx.fillStyle = "#fff";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         await page.render({ canvasContext: ctx, viewport }).promise;
-        if (shift !== 0) paint(ctx, canvas, n, scale, flats);
+        placeChords(ctx, chords.filter((c) => c.page === n), shift, flats, scale);
         out.append(canvas);
       }
 
@@ -181,108 +182,6 @@
       out.append(hint);
     }
 
-    /**
-     * Cover each chord and write the new one in its place.
-     *
-     * The patch is sampled from the page rather than assumed white: a chart
-     * with a tinted section band or a box round the chorus would otherwise
-     * get a row of white rectangles stamped through it.
-     */
-    function paint(ctx, canvas, pageNumber, scale, flats) {
-      for (const c of chords) {
-        if (c.page !== pageNumber) continue;
-        const moved = transposeChord(c.text, shift, flats);
-        if (!moved || moved === c.text) continue;
-
-        const x = c.x * scale;
-        const y = canvas.height - c.y * scale;     // baseline, in canvas space
-        const h = c.size * scale;
-        const pad = Math.max(2, h * 0.18);
-        // Brackets and a comma hang below the baseline, and a patch that stops
-        // at it leaves their feet behind on the page under the new chord.
-        const below = Math.max(3, h * 0.32);
-        const top = y - h - pad;
-        const boxH = h + pad + below;
-
-        ctx.fillStyle = backgroundAround(ctx, x - pad, top, c.w * scale + pad * 2, boxH);
-        ctx.fillRect(x - pad, top, c.w * scale + pad * 2, boxH);
-
-        ctx.fillStyle = "#000";
-        ctx.textBaseline = "alphabetic";
-        // Shrink only if the new symbol is wider than the old one, so that a
-        // C turning into a C# does not run into the chord beside it.
-        let size = h;
-        ctx.font = `600 ${size}px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif`;
-        const room = Math.max(c.w * scale, h * 1.2);
-        const width = ctx.measureText(moved).width;
-        if (width > room * 1.35) {
-          size = size * ((room * 1.35) / width);
-          ctx.font = `600 ${size}px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif`;
-        }
-        ctx.fillText(moved, x, y);
-      }
-    }
-
-    /**
-     * The page's own colour around a box, so the patch disappears into it.
-     *
-     * The whole ring, not one pixel. A single sample is a coin toss on a real
-     * chart: the lyric line sits a few pixels above the chords, so the point
-     * just outside the corner lands on the descender of a "g" about as often
-     * as it lands on paper — and then the patch is painted in ink and leaves
-     * a black rectangle where the chord was. Which is exactly what happened.
-     *
-     * The commonest colour around the edge is the paper, because most of the
-     * edge is paper even when part of it is not.
-     */
-    function backgroundAround(ctx, x, y, w, h) {
-      const m = 3;
-      const sx = Math.max(0, Math.round(x - m));
-      const sy = Math.max(0, Math.round(y - m));
-      const sw = Math.min(ctx.canvas.width - sx, Math.round(w + m * 2));
-      const sh = Math.min(ctx.canvas.height - sy, Math.round(h + m * 2));
-      if (sw < 3 || sh < 3) return "#fff";
-
-      let data;
-      try {
-        data = ctx.getImageData(sx, sy, sw, sh).data;
-      } catch {
-        return "#fff";
-      }
-
-      const seen = new Map();
-      const note = (px, py) => {
-        const i = (py * sw + px) * 4;
-        // Quantised, so that the anti-aliased near-whites of a scan all count
-        // as the same paper rather than as a hundred different colours.
-        const key =
-          ((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4);
-        seen.set(key, (seen.get(key) ?? 0) + 1);
-      };
-      for (let px = 0; px < sw; px++) {
-        note(px, 0);
-        note(px, sh - 1);
-      }
-      for (let py = 1; py < sh - 1; py++) {
-        note(0, py);
-        note(sw - 1, py);
-      }
-
-      let best = null;
-      let bestCount = -1;
-      for (const [key, count] of seen) {
-        const lighter = best !== null && count === bestCount && key > best;
-        if (count > bestCount || lighter) {
-          best = key;
-          bestCount = count;
-        }
-      }
-      if (best === null) return "#fff";
-      const r = ((best >> 8) & 0xf) * 17;
-      const g = ((best >> 4) & 0xf) * 17;
-      const b = (best & 0xf) * 17;
-      return `rgb(${r},${g},${b})`;
-    }
   </script>
 </body>
 </html>
