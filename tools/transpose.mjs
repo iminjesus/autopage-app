@@ -51,6 +51,16 @@ is(Array.from({ length: 12 }, (_, i) => keyName("C", i - 11)).join(" "),
   KEYS.map((_, i) => KEYS[(i + 1) % 12]).join(" "),
   "and the same twelve going down");
 
+// And the twelve minor keys, which are not the major list with an m on the
+// end. The same black key is Db as a major and C#m as a minor, because a
+// minor key takes its accidentals from its relative major — Db major has five
+// flats, C# minor has four sharps, and no musician writes Db minor.
+const MINORS = ["Am", "Bbm", "Bm", "Cm", "C#m", "Dm", "Ebm", "Em", "Fm", "F#m", "Gm", "G#m"];
+is(Array.from({ length: 12 }, (_, i) => keyName("Am", i)).join(" "), MINORS.join(" "),
+  "the twelve minor keys, up from Am");
+is(keyName("C", 1), "Db", "the same black key is Db as a major");
+is(keyName("Am", 4), "C#m", "and C#m as a minor");
+
 // The chords inside each key have to agree with the name on the front: D
 // major takes F#m and F major takes Bb, and a musician notices that first.
 const inKey = (n) => ["C", "Dm", "Em", "F", "G", "Am"]
@@ -62,12 +72,19 @@ is(inKey(1), "Db Ebm Fm Gb Ab Bbm", "and Db");
 is(inKey(9), "A Bm C#m D E F#m", "A major is sharps");
 is(inKey(11), "B C#m D#m E F# G#m", "and B");
 
+// Inside a key is not the same question as naming one. There is no key of
+// D#, but D#m is the right way to write the fifth chord of G# minor.
+const inMinor = (n) => ["Am", "Dm", "Em"]
+  .map((c) => transposeChord(c, n, spelling("Am", n))).join(" ");
+is(inMinor(11), "G#m C#m D#m", "G# minor takes D#m, key or no key");
+is(inMinor(6), "Ebm Abm Bbm", "and Eb minor takes flats throughout");
+
 // --- Naming the key it ended up in -----------------------------------------
 is(keyName("D", 2), "E", "the key is read off the first chord");
 is(keyName("Em", 2), "F#m", "a minor chart stays minor");
 is(keyName("Dm", -2), "Cm", "Dm down a tone");
 is(keyName("Em", 1), "Fm", "a minor key is spelled from its relative major");
-is(keyName("Am", 4), "C#m", "which is what keeps C#m from turning into Dbm");
+is(keyName("Fm", 2), "Gm", "and a minor chart keeps its own root");
 is(keyName("What", 2), null, "a chart whose first text is not a chord has no key to name");
 
 // --- Everything that is not a chord ----------------------------------------
