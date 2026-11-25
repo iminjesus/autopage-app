@@ -181,6 +181,82 @@ await p.waitForTimeout(1500);
 check((await diagLine()).includes("no chord symbols"),
   `and a score without them says why there is nothing to switch on: "${await diagLine()}"`);
 
+// --- The ladder up stays on keys a band can read ---------------------------
+//
+// Up a tone from E is F#, six sharps, and from B is C#, seven. Those are the
+// two places the scale has its own semitone, so a thumb follows the scale
+// instead of the interval and the ladder reads C D E F G A B.
+await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+await p.setInputFiles("#fileInput", chart);
+await p.waitForFunction(() => window.__autopage.state.pageCount > 0, { timeout: 20000 });
+await p.waitForTimeout(900);
+if (await p.evaluate(() => document.getElementById("setupPanel").classList.contains("collapsed"))) {
+  await p.click("#setupToggle");
+  await p.waitForTimeout(300);
+}
+await p.evaluate(() => { document.getElementById("thumbsOn").checked = true; });
+
+// The name on its own: "Eb (+3)" starts with "E", which is how the first
+// version of this test stopped on Eb and reported that E goes up a tone.
+const keyNow = async () => (await p.locator("#keyNow").textContent()).split(" ")[0];
+const toKey = async (name) => {
+  for (let i = 0; i < 24 && (await keyNow()) !== name; i++) {
+    await p.click("#keyUp");
+    await p.waitForTimeout(110);
+  }
+  return (await keyNow()) === name;
+};
+const steps = () => p.evaluate(() => window.__autopage.thumbUpSteps);
+
+// One clock, going forwards. Two of them, or one that restarts, puts the hold
+// in the future and nothing ever counts.
+let clock = 0;
+const thumb = async () => {
+  await p.evaluate((t) => window.__autopage.handSignal(null, t), (clock += 400));
+  await p.evaluate((t) => {
+    const A = window.__autopage;
+    for (let n = 0; n <= 900; n += 160) {
+      A.handSignal({ categoryName: "Thumb_Up", score: 0.9 }, t + n);
+    }
+  }, (clock += 400));
+  clock += 1200;
+  await p.waitForTimeout(250);
+};
+
+check(await toKey("C"), "from a chart put into C");
+check((await steps()) === 2, `a thumb is a tone: ${await steps()}`);
+check(await toKey("E"), "and in E");
+check((await steps()) === 1, `it is a semitone, so E goes to F and not F#: ${await steps()}`);
+check(await toKey("B"), "and in B");
+check((await steps()) === 1, `the same, so B goes to C and not C#: ${await steps()}`);
+check(await toKey("F"), "and back on an ordinary key");
+check((await steps()) === 2, `a tone again: ${await steps()}`);
+
+// Walk it, and read the ladder off.
+await p.click("#keyReset");
+await p.waitForTimeout(200);
+await toKey("C");
+const ladder = [await keyNow()];
+for (let i = 0; i < 6; i++) {
+  await thumb();
+  ladder.push(await keyNow());
+}
+check(ladder.join(" ") === "C D E F G A B",
+  `six thumbs from C walk the keys a band can read: ${ladder.join(" ")}`);
+
+// Turned off, it is a tone everywhere.
+await p.evaluate(() => {
+  const box = document.getElementById("naturalStepOn");
+  box.checked = false;
+  box.dispatchEvent(new Event("change", { bubbles: true }));
+});
+await p.click("#keyReset");
+await p.waitForTimeout(200);
+await toKey("E");
+check((await steps()) === 2, `switched off, E goes up a tone like anything else: ${await steps()}`);
+await thumb();
+check((await keyNow()) === "Gb", `which lands on Gb: ${await keyNow()}`);
+
 console.log("ERRORS:", errs.length ? errs : "none");
 await b.close();
 console.log(bad ? `${bad} FAILED` : "a thumb moves the key, once, and can be taken back");

@@ -1015,3 +1015,26 @@ reading anything else.
 
 The safety did not get deleted; it moved to where it is read rather than
 endured.
+
+## A thumb follows the scale, not the interval
+
+Up a tone is right from almost anywhere, and wrong from exactly two places.
+From E it lands in F#, six sharps; from B in C#, seven. Nobody hands a band
+either of those on a Sunday, and E to F and B to C are where the scale has
+its own semitone anyway — so the thumb goes up a semitone from those two and
+a tone from everywhere else, and the ladder up from C reads C D E F G A B.
+
+Switchable, because somebody might genuinely want Gb, but on by default
+because wanting it is rare and being dumped in it by accident is not.
+
+Two things had to give way for it. The hold latch compared the *size* of the
+step rather than its direction, so a tone and a semitone looked like two
+different gestures to it — it compares the sign now. And `setKeyShift`
+clamped the shift to eleven semitones, which meant thumbing up from a chart in
+Ab walked as far as G and then refused, with A sitting right there. A chord
+symbol is the same name twelve semitones up, so there is no edge to stop at:
+it wraps.
+
+Both were found by a test that walked the ladder and printed what it got
+— `C D E F G G G` — which is the kind of wrong answer that a pass/fail
+assertion alone would have reported as simply false.

@@ -23,10 +23,10 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25e key-note";
+const BUILD = "2026-11-25f natural-step";
 
 import * as pdfjsLib from "./vendor/pdf.js";
-import { spelling, keyName } from "./transpose.js";
+import { spelling, keyName, parseChord } from "./transpose.js";
 import { findChords, placeChords } from "./chord-paint.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
@@ -78,6 +78,7 @@ for (const id of [
   "offlineState", "offlineBtn", "screenState", "reloadBtn",
   "driveBtn", "panelDriveBtn", "driveToast",
   "keyRow", "keyNow", "keyUp", "keyDown", "keyReset", "keyBand", "keyNote",
+  "naturalStepField", "naturalStepOn",
   "thumbsField", "thumbsOn", "thumbsDownField", "thumbsDownOn",
   "camPreview", "gestureAsym", "gestureStatus", "calibrateBtn", "cancelCalibBtn",
   "watch", "calibStatus",
@@ -252,6 +253,26 @@ const THUMB_CONFIDENCE = 0.7;
 const THUMB_UP = 2;
 const THUMB_DOWN = -1;
 
+// Except from E and from B, where up a tone lands in F# and C#: six and seven
+// sharps, keys nobody hands a band on a Sunday. Those two are where the scale
+// has its own semitone — E to F, B to C — so a thumb follows the scale rather
+// than the interval, and the ladder up reads C D E F G A B, all of them keys
+// somebody can actually read at speed.
+const NATURAL_STEP_KEY = "autopage-natural-step";
+const SEMITONE_FROM = new Set([4, 11]); // E and B
+let naturalStep = true;
+
+/** Where the chords are now, as a pitch class. */
+function keyPitch() {
+  const chord = parseChord(firstChord ?? "");
+  return chord === null ? null : (chord.pitch + transposeBy + 144) % 12;
+}
+
+function thumbUpSteps() {
+  const pitch = keyPitch();
+  return naturalStep && pitch !== null && SEMITONE_FROM.has(pitch) ? 1 : THUMB_UP;
+}
+
 let thumbsOn = false;
 let thumbsDownOn = true;
 let recognizer = null;
@@ -358,7 +379,11 @@ function handSignal(gesture, now) {
   const seen = gesture ? `${gesture.categoryName} ${gesture.score.toFixed(2)}` : "no hand";
   const name = gesture && gesture.score >= THUMB_CONFIDENCE ? gesture.categoryName : null;
   const want =
-    name === "Thumb_Up" ? THUMB_UP : name === "Thumb_Down" && thumbsDownOn ? THUMB_DOWN : 0;
+    name === "Thumb_Up"
+      ? thumbUpSteps()
+      : name === "Thumb_Down" && thumbsDownOn
+        ? THUMB_DOWN
+        : 0;
 
   if (!want) {
     // The hand has to go away before another one counts. Without this a thumb
@@ -370,7 +395,7 @@ function handSignal(gesture, now) {
     thumbLatched = false;
     return 0;
   }
-  if (want !== thumbWhich) {
+  if (Math.sign(want) !== Math.sign(thumbWhich)) {
     thumbWhich = want;
     thumbSince = now;
     handReport = `${seen} — holding`;
@@ -400,6 +425,7 @@ async function setThumbs(on) {
   thumbsOn = on;
   remember(THUMBS_KEY, on ? "1" : null);
   if (el.thumbsDownField) el.thumbsDownField.hidden = !on;
+  if (el.naturalStepField) el.naturalStepField.hidden = !on;
   if (!on) {
     stopHands();
     return;
@@ -441,7 +467,11 @@ async function scanForChords() {
 /** Move the chords, and redraw whatever is on screen. */
 async function setKeyShift(next) {
   const was = transposeBy;
-  transposeBy = Math.max(-11, Math.min(11, next));
+  // Round, not clamped. A chord symbol is the same name twelve semitones up,
+  // so there is no edge to stop at — and stopping at one meant thumbing up
+  // from a chart in Ab walked as far as G and then refused, with the next key
+  // up being A and perfectly reachable.
+  transposeBy = next % 12;
   if (transposeBy === was) return;
   if (state.scoreId) remember(KEY_OF(state.scoreId), transposeBy ? String(transposeBy) : null);
   showKey();
@@ -472,6 +502,7 @@ function showKey() {
   el.keyRow.hidden = !has;
   if (el.thumbsField) el.thumbsField.hidden = !has;
   if (el.thumbsDownField) el.thumbsDownField.hidden = !has || !thumbsOn;
+  if (el.naturalStepField) el.naturalStepField.hidden = !has || !thumbsOn;
   if (has) {
     el.keyNow.textContent = transposeBy
       ? `${keyName(firstChord, transposeBy)} (${transposeBy > 0 ? "+" : ""}${transposeBy})`
@@ -966,8 +997,10 @@ function showCalibrationState() {
 function loadThumbs() {
   thumbsOn = remembered(THUMBS_KEY) === "1";
   thumbsDownOn = remembered(THUMBS_DOWN_KEY) !== "0";
+  naturalStep = remembered(NATURAL_STEP_KEY) !== "0";
   if (el.thumbsOn) el.thumbsOn.checked = thumbsOn;
   if (el.thumbsDownOn) el.thumbsDownOn.checked = thumbsDownOn;
+  if (el.naturalStepOn) el.naturalStepOn.checked = naturalStep;
 }
 
 function loadHold() {
@@ -3433,6 +3466,10 @@ on("keyReset", "click", () => setKeyShift(0));
 // and the band is already the thing on screen saying it happened.
 on("keyBand", "click", () => setKeyShift(0));
 on("thumbsOn", "change", () => setThumbs(el.thumbsOn.checked));
+on("naturalStepOn", "change", () => {
+  naturalStep = el.naturalStepOn.checked;
+  remember(NATURAL_STEP_KEY, naturalStep ? null : "0"); // on unless turned off
+});
 on("thumbsDownOn", "change", () => {
   thumbsDownOn = el.thumbsDownOn.checked;
   remember(THUMBS_DOWN_KEY, thumbsDownOn ? null : "0"); // on unless turned off
@@ -3870,6 +3907,7 @@ window.__autopage = {
   handSignal,
   setThumbs,
   get thumbsOn() { return thumbsOn; },
+  get thumbUpSteps() { return thumbUpSteps(); },
   get keyShift() { return transposeBy; },
   get faceFrames() { return faceFrames; },
   get handReport() { return handReport; },
