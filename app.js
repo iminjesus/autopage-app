@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25b thumbs";
+const BUILD = "2026-11-25c thumbs-tone";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { spelling, keyName } from "./transpose.js";
@@ -245,6 +245,13 @@ const HAND_FPS = 6;
 const THUMB_HOLD_MS = 600;
 const THUMB_CONFIDENCE = 0.7;
 
+// Up is a tone and down is a semitone, which is lopsided on purpose. Going up
+// for the last chorus is a tone almost every time — D to E — so asking for it
+// twice would be asking twice for the only thing anybody wants. Coming back
+// down is rare, and when it happens it is a smaller correction.
+const THUMB_UP = 2;
+const THUMB_DOWN = -1;
+
 let thumbsOn = false;
 let thumbsDownOn = true;
 let recognizer = null;
@@ -309,12 +316,12 @@ function onHandFrame() {
 function handSignal(gesture, now) {
   const name = gesture && gesture.score >= THUMB_CONFIDENCE ? gesture.categoryName : null;
   const want =
-    name === "Thumb_Up" ? 1 : name === "Thumb_Down" && thumbsDownOn ? -1 : 0;
+    name === "Thumb_Up" ? THUMB_UP : name === "Thumb_Down" && thumbsDownOn ? THUMB_DOWN : 0;
 
   if (!want) {
     // The hand has to go away before another one counts. Without this a thumb
-    // held up while somebody thinks about it walks the key up a tone at a
-    // time, and two deliberate thumbs is the normal way to ask for a tone.
+    // held up while somebody thinks about it walks the key up a tone every
+    // second or so.
     thumbWhich = 0;
     thumbLatched = false;
     return 0;

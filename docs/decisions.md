@@ -927,13 +927,18 @@ player can give mid-song, and the vendored MediaPipe bundle already has the
 recogniser in it — only the 8MB model had to be added, and only for people who
 ask for it.
 
+Up is a tone and down is a semitone, which is lopsided on purpose. The last
+chorus goes up a tone almost every time — D to E — so making that two thumbs
+would be asking twice for the only thing anybody wants. Coming back down is
+rare, and when it happens it is a smaller correction.
+
 It is held to a stricter standard than a page turn, because the two failures
 are not comparable. A page turned by mistake is turned back. A key changed by
 mistake rewrites every chord on the stand, mid-chorus, in front of the
 congregation. So: held for six hundred milliseconds, ignored below a
 confidence of 0.7, and **latched** — the hand has to go away before another
-counts, or a thumb held up while somebody thinks walks the key up a tone at a
-time. Two deliberate thumbs is the tone that was asked for.
+counts, or a thumb held up while somebody thinks walks the key up a tone
+every second or so.
 
 And the band that says what happened is also the undo. It was already on
 screen saying which half moved; making it tappable costs nothing and turns the

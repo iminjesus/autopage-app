@@ -49,11 +49,12 @@ that is 95% transposed is worse than one nobody touched.
 The key belongs to the score, so the next song in the set starts where it was
 printed. Scores with no chord symbols never see the control.
 
-**Thumbs up changes the key**, for the last chorus a tone up with both hands
-busy. One thumb is a semitone, so two is a tone — hold it for about a second,
-and put your hand down before the next one. Thumbs down lowers it, and can be
-switched off. The band across the screen says where the key went and puts it
-back if you tap it.
+**Thumbs up raises the key a tone**, for the last chorus with both hands busy.
+Hold it for about a second; put your hand down before the next one. Thumbs
+down lowers it by a *semitone*, and can be switched off — the lopsidedness is
+deliberate, because up is a tone almost every time and down is the rarer,
+smaller correction. The band across the screen says where the key went and
+puts it back if you tap it.
 
 It is off until you turn it on, and only offered on a chart that has chords.
 Turning it on fetches an 8MB hand model once, which then belongs to the

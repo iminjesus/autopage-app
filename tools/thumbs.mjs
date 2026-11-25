@@ -66,38 +66,43 @@ check(asked.length === 0, "and the 8MB model is not fetched by a page that only 
 await p.evaluate(() => { window.__autopage.thumbsTestOnly = true; });
 await p.evaluate(() => { document.getElementById("thumbsOn").checked = true; });
 
-// --- One thumb, one semitone -----------------------------------------------
-check((await hand("Thumb_Up", HOLD + 200)) === 1, "a thumb held up counts once");
-check((await shift()) === 1, `and moves the chords one semitone: ${await shift()}`);
+// --- One thumb, one tone ---------------------------------------------------
+//
+// Lopsided on purpose: up for the last chorus is a tone almost every time, so
+// asking for it twice would be asking twice for the only thing anybody wants.
+check((await hand("Thumb_Up", HOLD + 200)) === 2, "a thumb held up counts once");
+check((await shift()) === 2, `and raises the chords a tone — D to E: ${await shift()}`);
 
 // --- Held, not repeated -----------------------------------------------------
 //
 // The reason for the latch. A thumb held up while somebody thinks about it
 // would otherwise walk the key up a tone at a time.
 check((await hand("Thumb_Up", 4000)) === 0, "holding it there does not keep going");
-check((await shift()) === 1, `the key stayed where it was put: ${await shift()}`);
+check((await shift()) === 2, `the key stayed where it was put: ${await shift()}`);
 
 // --- Twice is a tone, which is what is actually asked for -------------------
 await hand(null, 400);                       // hand down
-check((await hand("Thumb_Up", HOLD + 200)) === 1, "a second thumb counts again");
-check((await shift()) === 2, `two thumbs is a tone — D to E: ${await shift()}`);
-check((await band()).includes("Chords in Bb"),
-  `and the screen says where it went: "${await band()}"`);
+check((await hand("Thumb_Up", HOLD + 200)) === 2, "a second thumb counts again");
+check((await shift()) === 4, `and takes it another tone: ${await shift()}`);
+check((await band()).includes("Chords in C"),
+  `the screen says where it went: "${await band()}"`);
 
 // --- Too brief is not a request --------------------------------------------
 await hand(null, 400);
 check((await hand("Thumb_Up", 300)) === 0, "a thumb that flashes past is not a request");
-check((await shift()) === 2, "so the key does not move");
+check((await shift()) === 4, "so the key does not move");
 
 // --- Nor is a half-sure reading --------------------------------------------
 await hand(null, 400);
 check((await hand("Thumb_Up", HOLD + 400, 0.4)) === 0, "nor is a reading the model is unsure of");
-check((await shift()) === 2, "and the key still does not move");
+check((await shift()) === 4, "and the key still does not move");
 
 // --- Down, which is there in case ------------------------------------------
 await hand(null, 400);
+// Down is a semitone, not a tone: it is the rarer move and a smaller
+// correction when it is wanted at all.
 check((await hand("Thumb_Down", HOLD + 200)) === -1, "a thumb down lowers it");
-check((await shift()) === 1, `back a semitone: ${await shift()}`);
+check((await shift()) === 3, `by a semitone, not a tone: ${await shift()}`);
 
 await p.evaluate(() => {
   document.getElementById("thumbsDownOn").checked = false;
@@ -105,7 +110,7 @@ await p.evaluate(() => {
 });
 await hand(null, 400);
 check((await hand("Thumb_Down", HOLD + 400)) === 0, "and is ignored when it is turned off");
-check((await shift()) === 1, "leaving the key alone");
+check((await shift()) === 3, "leaving the key alone");
 
 // --- The undo ---------------------------------------------------------------
 //
