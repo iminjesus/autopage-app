@@ -31,7 +31,7 @@ p.on("pageerror", (e) => errs.push(e.message));
 let bad = 0;
 const check = (ok, line) => { if (!ok) bad++; console.log(`${ok ? "ok  " : "FAIL"} ${line}`); };
 
-const HOLD = 600;
+// Read from the app rather than written down here, so the two cannot drift.
 /** Feed readings in, at the rate the hand loop runs. */
 const hand = (what, ms, score = 0.9) => p.evaluate(({ what, ms, score, HOLD }) => {
   const A = window.__autopage;
@@ -50,6 +50,8 @@ const band = () => p.evaluate(() => {
 });
 
 await p.goto("http://localhost:8123/index.html", { waitUntil: "networkidle" });
+// Read from the app rather than written down here, so the two cannot drift.
+const HOLD = await p.evaluate(() => window.__autopage.thumbHoldMs);
 await p.setInputFiles("#fileInput", chart);
 await p.waitForFunction(() => window.__autopage.state.pageCount > 0, { timeout: 20000 });
 await p.waitForTimeout(900);
@@ -83,8 +85,10 @@ check((await report()).includes("Thumb_Up 0.90"), `and what it saw: "${await rep
 check((await report()).includes("holding") || (await report()).includes("held"),
   "and that it is waiting for it to be held");
 await hand(null, 200);
-await hand("Thumb_Up", HOLD - 400);
-check(/held \d+\/600ms/.test(await report()), `with how far through: "${await report()}"`);
+// Long enough for a second reading at six a second, short of the hold.
+await hand("Thumb_Up", HOLD - 200);
+check(new RegExp(`held \\d+/${HOLD}ms`).test(await report()),
+  `with how far through: "${await report()}"`);
 await hand(null, 200);
 await hand("Thumb_Up", 160, 0.4);
 check((await report()).includes("needs 0.7"),

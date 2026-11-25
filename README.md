@@ -60,7 +60,7 @@ From E and from B it raises a semitone instead — E to F, B to C — because up
 a tone from those lands in F# and C#, six and seven sharps, which is not a
 chart anybody hands a band on a Sunday. Thumbing up from C therefore walks
 C D E F G A B. It can be switched off.
-Hold it for about a second; put your hand down before the next one. Thumbs
+Hold it for about half a second; put your hand down before the next one. Thumbs
 down lowers it by a *semitone*, and can be switched off — the lopsidedness is
 deliberate, because up is a tone almost every time and down is the rarer,
 smaller correction. The band says where the key went and puts it back if you tap it.

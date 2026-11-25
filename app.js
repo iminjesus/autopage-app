@@ -23,7 +23,7 @@
 
 // Shown on screen so a bug report can name the build it came from, rather than
 // leaving "did the pull actually take?" as an open question.
-const BUILD = "2026-11-25g steady-start";
+const BUILD = "2026-11-25h quicker-thumb";
 
 import * as pdfjsLib from "./vendor/pdf.js";
 import { spelling, keyName, parseChord } from "./transpose.js";
@@ -243,7 +243,11 @@ const THUMBS_DOWN_KEY = "autopage-thumbs-down";
 // already using the camera thirty times a second, which is the work that
 // must not be disturbed.
 const HAND_FPS = 6;
-const THUMB_HOLD_MS = 600;
+// Half a second. At six readings a second that is three after the one that
+// starts it, so a thumb is up for about two thirds of a second in all — long
+// enough that a hand passing through the frame is not a request, short enough
+// that nobody is standing there holding it.
+const THUMB_HOLD_MS = 500;
 const THUMB_CONFIDENCE = 0.7;
 
 // Up is a tone and down is a semitone, which is lopsided on purpose. Going up
@@ -4023,6 +4027,7 @@ window.__autopage = {
   setThumbs,
   get thumbsOn() { return thumbsOn; },
   get thumbUpSteps() { return thumbUpSteps(); },
+  get thumbHoldMs() { return THUMB_HOLD_MS; },
   get keyShift() { return transposeBy; },
   get faceFrames() { return faceFrames; },
   get running() { return Boolean(gestureTimer); },
