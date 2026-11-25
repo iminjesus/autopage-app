@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>AutoPage — chord probe</title>
+  <title>AutoPage — transpose preview</title>
   <link rel="icon" href="icon.svg" />
   <style>
     /* A diagnostic, not a feature. Nothing here is linked from the app and
@@ -38,15 +38,28 @@
     .found { margin-top: 10px; color: #9aa0ac; word-break: break-word; }
     canvas { max-width: 100%; height: auto; margin-top: 18px; border-radius: 10px; background: #fff; }
     .hint { color: #9aa0ac; font-size: 13.5px; margin-top: 16px; line-height: 1.5; }
+    .keys {
+      display: flex; align-items: center; gap: 12px; margin-top: 20px;
+    }
+    .keys button {
+      width: 52px; height: 48px; border-radius: 12px; font-size: 22px;
+      background: #171a21; color: #e8eaed; border: 1px solid rgba(255,255,255,0.16);
+      cursor: pointer;
+    }
+    .keys button.plain { width: auto; padding: 0 14px; font-size: 14px; }
+    #keyNow {
+      min-width: 92px; text-align: center; font-size: 20px; font-weight: 600;
+      color: #6b93ff;
+    }
   </style>
 </head>
 <body>
-  <h1>Chord probe</h1>
+  <h1>Transpose preview</h1>
   <p class="lede">
-    Open one of the real chord charts. This reads the PDF's text and reports
-    whether the chord symbols are there as text that can be found and placed —
-    which is what transposing them on the iPad would need. Nothing is uploaded;
-    it all happens here.
+    Open one of the real chord charts and move it to another key. Only the
+    chord symbols move — the notes on the staff stay where they are, which on
+    a lead sheet is what the band is reading anyway. Nothing is uploaded; it
+    all happens here.
   </p>
 
   <label class="pick">
@@ -54,111 +67,172 @@
     <input type="file" id="file" accept="application/pdf,.pdf" hidden />
   </label>
 
+  <div class="keys" id="keys" hidden>
+    <button type="button" id="down">−</button>
+    <span id="keyNow">—</span>
+    <button type="button" id="up">+</button>
+    <button type="button" id="reset" class="plain">original</button>
+  </div>
+
   <div id="out"></div>
 
   <script type="module">
     import * as pdfjsLib from "./vendor/pdf.js";
+    import { parseChord, transposeChord, spelling, keyName } from "./transpose.js";
     pdfjsLib.GlobalWorkerOptions.workerSrc = "./vendor/pdf.worker.js";
 
-    // A chord symbol, whole. Deliberately strict: counting every stray "A" in
-    // the lyrics as a chord would answer the wrong question cheerfully.
-    const CHORD = /^[A-G][#b♯♭]?(?:maj|min|m|dim|aug|sus|add|°|ø|\+)?\d*(?:sus[24]|add\d+)?(?:\([^)]*\))?(?:\/[A-G][#b♯♭]?)?$/;
-    // What a chord looks like before the superscript parts get split off into
-    // their own text runs, which is how a lot of engravers emit them.
-    const STARTS = /^[A-G][#b♯♭]?(?:maj|min|m|dim|aug|sus|add|°|ø|\+|\d|\/|\(|$)/;
-
     const out = document.getElementById("out");
+    const keys = document.getElementById("keys");
+    const keyNow = document.getElementById("keyNow");
+
+    let doc = null;
+    let chords = [];   // {page, text, x, y, w, h, size}
+    let firstChord = null;
+    let shift = 0;
+
     document.getElementById("file").addEventListener("change", (e) => {
       const file = e.target.files?.[0];
-      if (file) probe(file);
+      if (file) load(file);
     });
+    document.getElementById("up").addEventListener("click", () => move(+1));
+    document.getElementById("down").addEventListener("click", () => move(-1));
+    document.getElementById("reset").addEventListener("click", () => move(-shift));
 
-    async function probe(file) {
+    function move(by) {
+      shift = Math.max(-11, Math.min(11, shift + by));
+      draw();
+    }
+
+    async function load(file) {
       out.innerHTML = '<div class="verdict">Reading…</div>';
+      keys.hidden = true;
+      shift = 0;
       try {
-        const bytes = await file.arrayBuffer();
-        const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
-
+        doc = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        chords = [];
+        firstChord = null;
         let items = 0;
-        let strict = 0;
-        let loose = 0;
-        const samples = [];
-        const sizes = new Set();
-        let firstPage = null;
 
         for (let n = 1; n <= doc.numPages; n++) {
           const page = await doc.getPage(n);
-          const text = await page.getTextContent();
-          const boxes = [];
-          for (const item of text.items) {
-            const s = (item.str ?? "").trim();
-            if (!s) continue;
+          for (const item of (await page.getTextContent()).items) {
+            const text = (item.str ?? "").trim();
+            if (!text) continue;
             items++;
-            const isChord = CHORD.test(s);
-            if (isChord) {
-              strict++;
-              if (samples.length < 24) samples.push(s);
-              sizes.add(Math.round(Math.abs(item.transform?.[3] ?? 0)));
-              boxes.push({ x: item.transform[4], y: item.transform[5], w: item.width, h: item.height || 10 });
-            } else if (STARTS.test(s) && s.length <= 10) {
-              loose++;
-            }
+            if (!parseChord(text)) continue;
+            if (!firstChord) firstChord = text;
+            chords.push({
+              page: n, text,
+              x: item.transform[4], y: item.transform[5],
+              w: item.width, h: item.height || 10,
+              size: Math.abs(item.transform[3]) || 10,
+            });
           }
-          if (n === 1) firstPage = { page, boxes };
         }
 
-        const verdict = document.createElement("div");
-        const ok = strict >= 6;
-        verdict.className = `verdict ${ok ? "good" : "bad"}`;
-        verdict.innerHTML =
-          `<span class="big">${strict} chord symbols found</span>` +
-          `${doc.numPages} page${doc.numPages === 1 ? "" : "s"}, ` +
-          `${items} pieces of text in all` +
-          (loose ? `, ${loose} more that look chord-ish but did not match` : "") +
-          `.<br />Chord text sizes: ${[...sizes].sort((a, b) => a - b).join(", ") || "—"}` +
-          (samples.length ? `<div class="found mono">${samples.join("  ")}</div>` : "") +
+        const ok = chords.length >= 6;
+        const sample = chords.slice(0, 24).map((c) => c.text).join("  ");
+        out.innerHTML =
+          `<div class="verdict ${ok ? "good" : "bad"}">` +
+          `<span class="big">${chords.length} chord symbols found</span>` +
+          `${doc.numPages} page${doc.numPages === 1 ? "" : "s"}, ${items} pieces of text in all.` +
+          (sample ? `<div class="found mono">${sample}</div>` : "") +
           (items === 0
             ? "<div class='found'>No text at all — this is a scan, and nothing can be read out of it.</div>"
-            : ok
-              ? "<div class='found'>Boxes below show where they were found. If they sit on the chords, they can be replaced.</div>"
-              : "<div class='found'>Text is there but the chords are not coming out as their own pieces.</div>");
-        out.replaceChildren(verdict);
+            : ok ? "" : "<div class='found'>Text is there but the chords are not coming out as their own pieces.</div>") +
+          "</div>";
 
-        if (firstPage) await drawPage(firstPage);
+        keys.hidden = !ok;
+        if (ok) await draw();
       } catch (err) {
         out.innerHTML = `<div class="verdict bad"><span class="big">Could not read it</span>${err.message}</div>`;
       }
     }
 
-    // The decisive part. A count can be right while the positions are useless;
-    // boxes drawn on the page show both at once.
-    async function drawPage({ page, boxes }) {
-      const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(2, 900 / base.width);
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(viewport.width);
-      canvas.height = Math.round(viewport.height);
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
+    async function draw() {
+      keyNow.textContent = shift === 0
+        ? (keyName(firstChord, 0) ?? "original")
+        : `${keyName(firstChord, shift)} (${shift > 0 ? "+" : ""}${shift})`;
 
-      ctx.strokeStyle = "rgba(79,124,255,0.9)";
-      ctx.lineWidth = 1.5;
-      for (const b of boxes) {
-        const x = b.x * scale;
-        const y = canvas.height - (b.y + b.h) * scale;
-        ctx.strokeRect(x - 2, y - 2, b.w * scale + 4, b.h * scale + 4);
+      const flats = spelling(firstChord, shift);
+      for (const old of out.querySelectorAll("canvas, .hint")) old.remove();
+
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2, 900 / base.width);
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext("2d", { alpha: false });
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        if (shift !== 0) paint(ctx, canvas, n, scale, flats);
+        out.append(canvas);
       }
-      out.append(canvas);
 
       const hint = document.createElement("p");
       hint.className = "hint";
       hint.textContent =
-        "Screenshot this and send it. The boxes landing on the chords is the " +
-        "answer; the number on its own is not.";
+        "Screenshot a page and send it. What matters is whether the new chords " +
+        "sit where the old ones did and nothing else got covered up.";
       out.append(hint);
+    }
+
+    /**
+     * Cover each chord and write the new one in its place.
+     *
+     * The patch is sampled from the page rather than assumed white: a chart
+     * with a tinted section band or a box round the chorus would otherwise
+     * get a row of white rectangles stamped through it.
+     */
+    function paint(ctx, canvas, pageNumber, scale, flats) {
+      for (const c of chords) {
+        if (c.page !== pageNumber) continue;
+        const moved = transposeChord(c.text, shift, flats);
+        if (!moved || moved === c.text) continue;
+
+        const x = c.x * scale;
+        const y = canvas.height - c.y * scale;     // baseline, in canvas space
+        const h = c.size * scale;
+        const pad = Math.max(2, h * 0.18);
+        // Brackets and a comma hang below the baseline, and a patch that stops
+        // at it leaves their feet behind on the page under the new chord.
+        const below = Math.max(3, h * 0.32);
+        const top = y - h - pad;
+        const boxH = h + pad + below;
+
+        ctx.fillStyle = backgroundAt(ctx, x, top, c.w * scale, boxH);
+        ctx.fillRect(x - pad, top, c.w * scale + pad * 2, boxH);
+
+        ctx.fillStyle = "#000";
+        ctx.textBaseline = "alphabetic";
+        // Shrink only if the new symbol is wider than the old one, so that a
+        // C turning into a C# does not run into the chord beside it.
+        let size = h;
+        ctx.font = `600 ${size}px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif`;
+        const room = Math.max(c.w * scale, h * 1.2);
+        const width = ctx.measureText(moved).width;
+        if (width > room * 1.35) {
+          size = size * ((room * 1.35) / width);
+          ctx.font = `600 ${size}px ui-sans-serif, system-ui, Helvetica, Arial, sans-serif`;
+        }
+        ctx.fillText(moved, x, y);
+      }
+    }
+
+    /** The page's own colour just outside a box, so the patch disappears. */
+    function backgroundAt(ctx, x, y, w, h) {
+      const sx = Math.max(0, Math.round(x - 4));
+      const sy = Math.max(0, Math.round(y - 4));
+      try {
+        const px = ctx.getImageData(sx, sy, 1, 1).data;
+        return `rgb(${px[0]},${px[1]},${px[2]})`;
+      } catch {
+        return "#fff";
+      }
     }
   </script>
 </body>
